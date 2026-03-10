@@ -5,6 +5,8 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { Navbar } from "@/components/Navbar";
+import { BottomNav } from "@/components/BottomNav";
+import { EVChatbot } from "@/components/EVChatbot";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import Home from "./pages/Home";
 import Login from "./pages/Login";
@@ -47,6 +49,8 @@ const App = () => (
             />
             <Route path="*" element={<NotFound />} />
           </Routes>
+          <BottomNav />
+          <EVChatbot />
         </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>

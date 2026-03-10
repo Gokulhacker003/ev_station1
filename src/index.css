@@ -109,4 +109,8 @@
     -webkit-backdrop-filter: blur(16px);
     border: 1px solid hsla(var(--border));
   }
+
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
 }

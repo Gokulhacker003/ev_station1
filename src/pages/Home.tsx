@@ -8,11 +8,14 @@ import { Loader } from "@/components/Loader";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, useMemo } from "react";
+import { useGeolocation } from "@/hooks/useGeolocation";
+import { calculateDistance } from "@/lib/distance";
 
 export default function Home() {
   const { user } = useAuth();
   const [search, setSearch] = useState("");
+  const geo = useGeolocation();
 
   const { data: stations, isLoading } = useQuery({
     queryKey: ["stations-home"],
@@ -27,15 +30,28 @@ export default function Home() {
     },
   });
 
-  const filtered = stations?.filter((s) =>
-    s.name.toLowerCase().includes(search.toLowerCase()) ||
-    s.charger_type.toLowerCase().includes(search.toLowerCase())
+  const stationsWithDistance = useMemo(() => {
+    if (!stations) return [];
+    return stations
+      .map((s) => ({
+        ...s,
+        distance: geo.latitude && geo.longitude
+          ? calculateDistance(geo.latitude, geo.longitude, s.latitude, s.longitude)
+          : undefined,
+      }))
+      .sort((a, b) => (a.distance ?? Infinity) - (b.distance ?? Infinity));
+  }, [stations, geo.latitude, geo.longitude]);
+
+  const filtered = stationsWithDistance.filter(
+    (s) =>
+      s.name.toLowerCase().includes(search.toLowerCase()) ||
+      s.charger_type.toLowerCase().includes(search.toLowerCase())
   );
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen pb-20 md:pb-0">
       {/* Hero */}
-      <section className="relative overflow-hidden py-20 md:py-32">
+      <section className="relative overflow-hidden py-16 md:py-28">
         <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-secondary/5" />
         <div className="container mx-auto px-4 relative">
           <motion.div
@@ -49,11 +65,11 @@ export default function Home() {
                 <Zap className="h-8 w-8 text-primary-foreground" />
               </div>
             </div>
-            <h1 className="font-display text-4xl md:text-6xl font-bold text-foreground mb-4">
+            <h1 className="font-display text-3xl md:text-6xl font-bold text-foreground mb-4">
               Find EV Charging<br />
               <span className="text-primary">Stations Near You</span>
             </h1>
-            <p className="text-lg text-muted-foreground mb-8">
+            <p className="text-base md:text-lg text-muted-foreground mb-8">
               Discover, book, and charge your electric vehicle at thousands of stations across the country.
             </p>
 
@@ -82,7 +98,7 @@ export default function Home() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.3, duration: 0.5 }}
-            className="flex flex-wrap justify-center gap-4 mt-12"
+            className="flex flex-wrap justify-center gap-3 mt-10"
           >
             <Button variant="outline" size="lg" asChild className="gap-2">
               <Link to="/map">
@@ -103,10 +119,12 @@ export default function Home() {
       </section>
 
       {/* Nearby Stations */}
-      <section className="py-16">
+      <section className="py-12">
         <div className="container mx-auto px-4">
-          <div className="flex items-center justify-between mb-8">
-            <h2 className="font-display text-2xl font-bold text-foreground">Nearby Stations</h2>
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="font-display text-xl md:text-2xl font-bold text-foreground">
+              {geo.latitude ? "Nearby Stations" : "Recent Stations"}
+            </h2>
             <Button variant="ghost" asChild className="gap-1">
               <Link to="/stations">
                 View All <ArrowRight className="h-4 w-4" />
@@ -118,10 +136,10 @@ export default function Home() {
             <div className="flex justify-center py-12">
               <Loader text="Finding stations..." />
             </div>
-          ) : filtered && filtered.length > 0 ? (
+          ) : filtered.length > 0 ? (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {filtered.map((station, i) => (
-                <StationCard key={station.id} station={station} index={i} />
+                <StationCard key={station.id} station={station} index={i} distanceKm={station.distance} />
               ))}
             </div>
           ) : (
