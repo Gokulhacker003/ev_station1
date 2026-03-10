@@ -50,6 +50,13 @@ export type Database = {
             referencedRelation: "stations"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "bookings_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["user_id"]
+          }
         ]
       }
       profiles: {

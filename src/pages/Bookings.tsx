@@ -39,16 +39,32 @@ export default function Bookings() {
     },
   });
 
+  // Role-based booking query
   const { data: bookings, isLoading: bookingsLoading } = useQuery({
-    queryKey: ["my-bookings"],
+    queryKey: ["bookings", isAdmin ? "all" : "my"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("bookings")
-        .select("*, stations(name, charger_type)")
-        .eq("user_id", user!.id)
-        .order("booking_date", { ascending: false });
-      if (error) throw error;
-      return data;
+      if (isAdmin) {
+        // Admin: Get ALL bookings with user information
+        const { data, error } = await supabase
+          .from("bookings")
+          .select(`
+            *, 
+            stations(name, charger_type),
+            profiles(full_name, user_id)
+          `)
+          .order("booking_date", { ascending: false });
+        if (error) throw error;
+        return data;
+      } else {
+        // Regular user: Get only their own bookings
+        const { data, error } = await supabase
+          .from("bookings")
+          .select("*, stations(name, charger_type)")
+          .eq("user_id", user!.id)
+          .order("booking_date", { ascending: false });
+        if (error) throw error;
+        return data;
+      }
     },
     enabled: !!user,
   });
@@ -100,7 +116,7 @@ export default function Bookings() {
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["my-bookings"] });
+      queryClient.invalidateQueries({ queryKey: ["bookings"] });
       queryClient.invalidateQueries({ queryKey: ["booked-slots"] });
       toast({ title: "Booking confirmed!", description: "Your charging slot has been reserved." });
       setSelectedStation("");
@@ -122,38 +138,23 @@ export default function Bookings() {
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["my-bookings"] });
+      queryClient.invalidateQueries({ queryKey: ["bookings"] });
       toast({ title: "Booking cancelled" });
     },
   });
 
-  const [adminBookings, setAdminBookings] = useState([]);
-
-  useEffect(() => {
-    if (isAdmin) {
-      // Fetch all bookings for admin
-      supabase
-        .from("bookings")
-        .select("*, stations(name, charger_type), users(full_name)")
-        .then(({ data, error }) => {
-          if (error) {
-            console.error("Error fetching admin bookings:", error);
-          } else {
-            setAdminBookings(data);
-          }
-        });
-    }
-  }, [isAdmin]);
-
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="min-h-[calc(100vh-4rem)]">
       <div className="container mx-auto px-4 py-6">
-        <h1 className="font-display text-2xl font-bold text-foreground mb-6">Bookings</h1>
+        <h1 className="font-display text-2xl font-bold text-foreground mb-6">
+          {isAdmin ? "All Bookings (Admin)" : "My Bookings"}
+        </h1>
 
         <div className="grid gap-8 lg:grid-cols-2">
-          {/* New Booking */}
-          <div className="glass rounded-xl p-6">
-            <h2 className="font-display text-lg font-semibold mb-4">Book a Charging Slot</h2>
+          {/* New Booking - Only show for regular users */}
+          {!isAdmin && (
+            <div className="glass rounded-xl p-6">
+              <h2 className="font-display text-lg font-semibold mb-4">Book a Charging Slot</h2>
             <div className="space-y-4">
               <div>
                 <label htmlFor={stationFieldId} className="text-sm font-medium text-foreground mb-1.5 block">Station</label>
@@ -219,84 +220,138 @@ export default function Bookings() {
               </Button>
             </div>
           </div>
+          )}
 
-          {/* My Bookings */}
-          <div>
-            <h2 className="font-display text-lg font-semibold mb-4">My Bookings</h2>
+          {/* Bookings Display */}
+          <div className={isAdmin ? "lg:col-span-2" : ""}>
+            <h2 className="font-display text-lg font-semibold mb-4">
+              {isAdmin ? "All User Bookings" : "Your Bookings"}
+            </h2>
             {bookingsLoading ? (
               <Loader text="Loading bookings..." />
             ) : bookings && bookings.length > 0 ? (
-              <div className="space-y-3">
-                {bookings.map((booking, i) => (
-                  <motion.div
-                    key={booking.id}
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: i * 0.05 }}
-                    className="glass rounded-xl p-4 flex items-center justify-between"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-                        <Zap className="h-5 w-5 text-primary" />
-                      </div>
-                      <div>
-                        <p className="font-medium text-sm text-foreground">
-                          {booking.stations?.name || "Station"}
-                        </p>
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <CalendarIcon className="h-3 w-3" />
-                          {format(new Date(booking.booking_date), "PP")}
-                          <Clock className="h-3 w-3 ml-1" />
-                          {booking.time_slot}
+              isAdmin ? (
+                // Admin view - Table format showing all user bookings
+                <div className="glass rounded-xl overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-muted/50">
+                        <tr>
+                          <th className="text-left p-4 font-medium">User</th>
+                          <th className="text-left p-4 font-medium">Station</th>
+                          <th className="text-left p-4 font-medium">Date</th>
+                          <th className="text-left p-4 font-medium">Time</th>
+                          <th className="text-left p-4 font-medium">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {bookings.map((booking, i) => (
+                          <motion.tr
+                            key={booking.id}
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: i * 0.02 }}
+                            className="border-b border-border/50 hover:bg-muted/20"
+                          >
+                            <td className="p-4">
+                              <div className="font-medium text-sm">
+                                {booking.profiles?.full_name || `User ${booking.user_id.slice(0, 8)}`}
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                ID: {booking.user_id.slice(0, 8)}...
+                              </div>
+                            </td>
+                            <td className="p-4">
+                              <div className="font-medium text-sm">
+                                {booking.stations?.name || "Station"}
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                {booking.stations?.charger_type}
+                              </div>
+                            </td>
+                            <td className="p-4 text-sm">
+                              {format(new Date(booking.booking_date), "PP")}
+                            </td>
+                            <td className="p-4 text-sm">
+                              {booking.time_slot}
+                            </td>
+                            <td className="p-4">
+                              <Badge
+                                variant={
+                                  booking.status === "confirmed" ? "default" :
+                                  booking.status === "cancelled" ? "destructive" : "secondary"
+                                }
+                              >
+                                {booking.status}
+                              </Badge>
+                            </td>
+                          </motion.tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : (
+                // User view - Card format showing only their bookings
+                <div className="space-y-3">
+                  {bookings.map((booking, i) => (
+                    <motion.div
+                      key={booking.id}
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: i * 0.05 }}
+                      className="glass rounded-xl p-4 flex items-center justify-between"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+                          <Zap className="h-5 w-5 text-primary" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-sm text-foreground">
+                            {booking.stations?.name || "Station"}
+                          </p>
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <CalendarIcon className="h-3 w-3" />
+                            {format(new Date(booking.booking_date), "PP")}
+                            <Clock className="h-3 w-3 ml-1" />
+                            {booking.time_slot}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge
-                        variant={
-                          booking.status === "confirmed" ? "default" :
-                          booking.status === "cancelled" ? "destructive" : "secondary"
-                        }
-                      >
-                        {booking.status}
-                      </Badge>
-                      {booking.status === "confirmed" && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
-                          onClick={() => cancelBooking.mutate(booking.id)}
+                      <div className="flex items-center gap-2">
+                        <Badge
+                          variant={
+                            booking.status === "confirmed" ? "default" :
+                            booking.status === "cancelled" ? "destructive" : "secondary"
+                          }
                         >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
+                          {booking.status}
+                        </Badge>
+                        {booking.status === "confirmed" && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => cancelBooking.mutate(booking.id)}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              )
             ) : (
               <div className="text-center py-12">
                 <CalendarIcon className="h-12 w-12 text-muted-foreground/30 mx-auto mb-4" />
-                <p className="text-muted-foreground">No bookings yet.</p>
+                <p className="text-muted-foreground">
+                  {isAdmin ? "No bookings in the system yet." : "No bookings yet."}
+                </p>
               </div>
             )}
           </div>
         </div>
-
-        {isAdmin && (
-          <div>
-            <h2 className="font-display text-lg font-semibold mb-4">All Bookings (Admin)</h2>
-            {adminBookings.map((booking) => (
-              <div key={booking.id}>
-                <p>Station: {booking.stations?.name}</p>
-                <p>User: {booking.users?.full_name}</p>
-                <p>Date: {booking.booking_date}</p>
-                <p>Time Slot: {booking.time_slot}</p>
-                <p>Status: {booking.status}</p>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
     </motion.div>
   );

@@ -25,8 +25,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [role, setRole] = useState<AppRole | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchRole = async (userId: string) => {
+  const fetchRole = async (userId: string, user: any) => {
     try {
+      // First check if role is in user metadata (app_metadata or user_metadata)
+      const roleFromMeta = user?.app_metadata?.role || user?.user_metadata?.role;
+      if (roleFromMeta) {
+        console.log("Role found in auth metadata:", roleFromMeta);
+        setRole(roleFromMeta as AppRole);
+        return;
+      }
+      
+      // Fallback to user_roles table
       const { data, error } = await supabase
         .from("user_roles")
         .select("role")
@@ -34,12 +43,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .maybeSingle();
       
       if (error) {
-        console.warn("Error fetching role:", error);
+        console.warn("Error fetching role from table:", error);
         setRole("user");
         return;
       }
       
-      setRole(data?.role ?? "user");
+      const roleFromTable = data?.role ?? "user";
+      console.log("Role found in table:", roleFromTable);
+      setRole(roleFromTable);
     } catch (err) {
       console.error("Failed to fetch role:", err);
       setRole("user");
@@ -53,7 +64,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(session?.user ?? null);
         if (session?.user) {
           // Use setTimeout to avoid potential deadlock with Supabase auth
-          setTimeout(() => fetchRole(session.user.id), 0);
+          setTimeout(() => fetchRole(session.user.id, session.user), 0);
         } else {
           setRole(null);
         }
@@ -65,7 +76,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
-        fetchRole(session.user.id);
+        fetchRole(session.user.id, session.user);
       }
       setLoading(false);
     });
@@ -106,6 +117,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 export function useAuth() {
   const context = useContext(AuthContext);
-  if (!context) throw new Error("useAuth must be used within AuthProvider");
+  if (!context) {
+    console.error("useAuth must be used within an AuthProvider");
+    // Return a fallback context to prevent crashes during hot reload
+    return {
+      session: null,
+      user: null,
+      role: null,
+      loading: true,
+      signIn: async () => {},
+      signUp: async () => {},
+      signOut: async () => {},
+      userEmail: null,
+      isAdmin: false
+    };
+  }
   return context;
 }
