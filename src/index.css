@@ -2,6 +2,15 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Leaflet z-index override */
+.leaflet-container {
+  z-index: 0 !important;
+}
+
+.leaflet-control-container {
+  z-index: 1 !important;
+}
+
 @layer base {
   :root {
     --background: 210 40% 98%;

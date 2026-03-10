@@ -1,0 +1,6 @@
+<svg width="320" height="96" viewBox="0 0 320 96" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="320" height="96" rx="16" fill="#0F172A"/>
+  <circle cx="48" cy="48" r="24" fill="#22C55E"/>
+  <path d="M48 30L38 50H48L44 66L58 44H49L54 30H48Z" fill="white"/>
+  <text x="86" y="58" fill="white" font-size="34" font-family="Space Grotesk, Arial, sans-serif" font-weight="700">EVCharge</text>
+</svg>

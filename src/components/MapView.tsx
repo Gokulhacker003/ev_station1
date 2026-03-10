@@ -5,7 +5,7 @@ import type { Tables } from "@/integrations/supabase/types";
 import { calculateDistance, formatDistance, estimateDriveTime } from "@/lib/distance";
 
 // Fix default marker icons for Leaflet + bundlers
-delete (L.Icon.Default.prototype as any)._getIconUrl;
+Reflect.deleteProperty(L.Icon.Default.prototype, '_getIconUrl');
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
   iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
@@ -31,6 +31,7 @@ interface MapViewProps {
   center?: [number, number];
   zoom?: number;
   userLocation?: [number, number] | null;
+  routeTarget?: [number, number] | null;
   onStationClick?: (station: Tables<"stations">) => void;
   onMapClick?: (lat: number, lng: number) => void;
   selectedPosition?: [number, number] | null;
@@ -42,6 +43,7 @@ export function MapView({
   center = [20.5937, 78.9629],
   zoom = 5,
   userLocation,
+  routeTarget,
   onStationClick,
   onMapClick,
   selectedPosition,
@@ -52,15 +54,12 @@ export function MapView({
   const markersRef = useRef<L.LayerGroup | null>(null);
   const selectedMarkerRef = useRef<L.Marker | null>(null);
   const userMarkerRef = useRef<L.Marker | null>(null);
-
-  // Determine effective center: prefer user location
-  const effectiveCenter = userLocation || center;
-  const effectiveZoom = userLocation ? 13 : zoom;
+  const routeLineRef = useRef<L.Polyline | null>(null);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
 
-    mapRef.current = L.map(containerRef.current).setView(effectiveCenter, effectiveZoom);
+    mapRef.current = L.map(containerRef.current).setView(center, zoom);
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     }).addTo(mapRef.current);
@@ -77,7 +76,7 @@ export function MapView({
       mapRef.current?.remove();
       mapRef.current = null;
     };
-  }, []);
+  }, [onMapClick, center, zoom]);
 
   // Re-center when user location becomes available
   useEffect(() => {
@@ -122,7 +121,7 @@ export function MapView({
           <span style="color:#666;font-size:12px">⚡ ${station.charger_type}</span><br/>
           <span style="color:#666;font-size:12px">🔌 ${station.available_slots} slots available</span><br/>
           <div style="margin-top:8px;display:flex;gap:6px">
-            <a href="https://www.google.com/maps/dir/?api=1&destination=${station.latitude},${station.longitude}" target="_blank" rel="noopener" style="background:#22c55e;color:white;padding:4px 10px;border-radius:6px;font-size:12px;text-decoration:none">Navigate</a>
+            <a href="/map?station=${station.id}" style="background:#22c55e;color:white;padding:4px 10px;border-radius:6px;font-size:12px;text-decoration:none">Navigate</a>
           </div>
         </div>`
       );
@@ -146,5 +145,31 @@ export function MapView({
     }
   }, [selectedPosition]);
 
-  return <div ref={containerRef} className={`rounded-xl overflow-hidden ${className}`} />;
+  // Draw a route line from user location to selected station on this site map
+  useEffect(() => {
+    if (!mapRef.current) return;
+
+    if (routeLineRef.current) {
+      routeLineRef.current.remove();
+      routeLineRef.current = null;
+    }
+
+    if (userLocation && routeTarget) {
+      routeLineRef.current = L.polyline([userLocation, routeTarget], {
+        color: "#22c55e",
+        weight: 4,
+        opacity: 0.9,
+        dashArray: "8 8",
+      }).addTo(mapRef.current);
+
+      const bounds = L.latLngBounds([userLocation, routeTarget]);
+      mapRef.current.fitBounds(bounds, { padding: [40, 40] });
+    }
+  }, [userLocation, routeTarget]);
+
+  return (
+    <div className="relative z-0">
+      <div ref={containerRef} className={`rounded-xl overflow-hidden ${className}`} />
+    </div>
+  );
 }

@@ -12,6 +12,7 @@ import { Loader } from "@/components/Loader";
 import { toast } from "@/hooks/use-toast";
 import { Constants } from "@/integrations/supabase/types";
 import type { Database } from "@/integrations/supabase/types";
+import type { Tables } from "@/integrations/supabase/types";
 import { Plus, Pencil, Trash2, X } from "lucide-react";
 
 type ChargerType = Database["public"]["Enums"]["charger_type"];
@@ -77,8 +78,9 @@ export default function AdminDashboard() {
       toast({ title: editingId ? "Station updated!" : "Station added!" });
       resetForm();
     },
-    onError: (err: any) => {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
+    onError: (err: unknown) => {
+      const message = err instanceof Error ? err.message : "Failed to save station";
+      toast({ title: "Error", description: message, variant: "destructive" });
     },
   });
 
@@ -100,7 +102,7 @@ export default function AdminDashboard() {
     setMapPosition(null);
   };
 
-  const startEdit = (station: any) => {
+  const startEdit = (station: Tables<"stations">) => {
     setForm({
       name: station.name,
       latitude: String(station.latitude),
@@ -142,8 +144,9 @@ export default function AdminDashboard() {
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-4">
                 <div>
-                  <label className="text-sm font-medium mb-1.5 block">Station Name</label>
+                  <label htmlFor="admin-station-name" className="text-sm font-medium mb-1.5 block">Station Name</label>
                   <Input
+                    id="admin-station-name"
                     value={form.name}
                     onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                     placeholder="Enter station name"
@@ -152,16 +155,18 @@ export default function AdminDashboard() {
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-sm font-medium mb-1.5 block">Latitude</label>
+                    <label htmlFor="admin-station-latitude" className="text-sm font-medium mb-1.5 block">Latitude</label>
                     <Input
+                      id="admin-station-latitude"
                       value={form.latitude}
                       onChange={(e) => setForm((f) => ({ ...f, latitude: e.target.value }))}
                       placeholder="e.g. 28.6139"
                     />
                   </div>
                   <div>
-                    <label className="text-sm font-medium mb-1.5 block">Longitude</label>
+                    <label htmlFor="admin-station-longitude" className="text-sm font-medium mb-1.5 block">Longitude</label>
                     <Input
+                      id="admin-station-longitude"
                       value={form.longitude}
                       onChange={(e) => setForm((f) => ({ ...f, longitude: e.target.value }))}
                       placeholder="e.g. 77.2090"
@@ -169,12 +174,12 @@ export default function AdminDashboard() {
                   </div>
                 </div>
                 <div>
-                  <label className="text-sm font-medium mb-1.5 block">Charger Type</label>
+                  <label htmlFor="admin-charger-type" className="text-sm font-medium mb-1.5 block">Charger Type</label>
                   <Select
                     value={form.charger_type}
                     onValueChange={(v) => setForm((f) => ({ ...f, charger_type: v as ChargerType }))}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger id="admin-charger-type">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -185,8 +190,9 @@ export default function AdminDashboard() {
                   </Select>
                 </div>
                 <div>
-                  <label className="text-sm font-medium mb-1.5 block">Available Slots</label>
+                  <label htmlFor="admin-available-slots" className="text-sm font-medium mb-1.5 block">Available Slots</label>
                   <Input
+                    id="admin-available-slots"
                     type="number"
                     min="0"
                     value={form.available_slots}
@@ -198,7 +204,7 @@ export default function AdminDashboard() {
                 </Button>
               </div>
               <div>
-                <label className="text-sm font-medium mb-1.5 block">Pick Location on Map</label>
+                <p className="text-sm font-medium mb-1.5 block">Pick Location on Map</p>
                 <MapView
                   stations={stations || []}
                   onMapClick={handleMapClick}

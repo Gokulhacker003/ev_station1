@@ -13,6 +13,7 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, fullName: string) => Promise<void>;
   signOut: () => Promise<void>;
+    userEmail: string | null;
   isAdmin: boolean;
 }
 
@@ -25,12 +26,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const fetchRole = async (userId: string) => {
-    const { data } = await supabase
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", userId)
-      .maybeSingle();
-    setRole(data?.role ?? "user");
+    try {
+      const { data, error } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", userId)
+        .maybeSingle();
+      
+      if (error) {
+        console.warn("Error fetching role:", error);
+        setRole("user");
+        return;
+      }
+      
+      setRole(data?.role ?? "user");
+    } catch (err) {
+      console.error("Failed to fetch role:", err);
+      setRole("user");
+    }
   };
 
   useEffect(() => {
@@ -84,7 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ session, user, role, loading, signIn, signUp, signOut, isAdmin: role === "admin" }}
+      value={{ session, user, role, loading, signIn, signUp, signOut, userEmail: user?.email ?? null, isAdmin: role === "admin" }}
     >
       {children}
     </AuthContext.Provider>

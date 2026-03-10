@@ -10,17 +10,11 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
 import { Loader } from "@/components/Loader";
+import { TimeSlotPicker } from "@/components/TimeSlotPicker";
 import { CalendarIcon, Zap, X, Clock } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
-
-const TIME_SLOTS = [
-  "06:00 - 07:00", "07:00 - 08:00", "08:00 - 09:00", "09:00 - 10:00",
-  "10:00 - 11:00", "11:00 - 12:00", "12:00 - 13:00", "13:00 - 14:00",
-  "14:00 - 15:00", "15:00 - 16:00", "16:00 - 17:00", "17:00 - 18:00",
-  "18:00 - 19:00", "19:00 - 20:00", "20:00 - 21:00", "21:00 - 22:00",
-];
 
 export default function Bookings() {
   const { user } = useAuth();
@@ -31,6 +25,10 @@ export default function Bookings() {
   const [selectedStation, setSelectedStation] = useState(preselectedStation || "");
   const [selectedDate, setSelectedDate] = useState<Date>();
   const [selectedSlot, setSelectedSlot] = useState("");
+
+  const stationFieldId = "booking-station";
+  const dateFieldId = "booking-date";
+  const timeSlotFieldId = "booking-time-slot";
 
   const { data: stations } = useQuery({
     queryKey: ["stations-booking"],
@@ -60,23 +58,58 @@ export default function Bookings() {
       if (!selectedStation || !selectedDate || !selectedSlot || !user) {
         throw new Error("Please fill all fields");
       }
+
+      const dateStr = format(selectedDate, "yyyy-MM-dd");
+
+      // Check if user already has a booking for this slot
+      const { data: existingBooking } = await supabase
+        .from("bookings")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("station_id", selectedStation)
+        .eq("booking_date", dateStr)
+        .eq("time_slot", selectedSlot)
+        .neq("status", "cancelled")
+        .maybeSingle();
+
+      if (existingBooking) {
+        throw new Error("You already have a booking for this time slot");
+      }
+
+      // Check if slot is available (not booked by others)
+      const { data: otherBookings } = await supabase
+        .from("bookings")
+        .select("id")
+        .eq("station_id", selectedStation)
+        .eq("booking_date", dateStr)
+        .eq("time_slot", selectedSlot)
+        .neq("status", "cancelled");
+
+      if (otherBookings && otherBookings.length > 0) {
+        throw new Error("This time slot is already booked");
+      }
+
+      // Create the booking
       const { error } = await supabase.from("bookings").insert({
         user_id: user.id,
         station_id: selectedStation,
-        booking_date: format(selectedDate, "yyyy-MM-dd"),
+        booking_date: dateStr,
         time_slot: selectedSlot,
       });
+      
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["my-bookings"] });
+      queryClient.invalidateQueries({ queryKey: ["booked-slots"] });
       toast({ title: "Booking confirmed!", description: "Your charging slot has been reserved." });
       setSelectedStation("");
       setSelectedDate(undefined);
       setSelectedSlot("");
     },
-    onError: (err: any) => {
-      toast({ title: "Booking failed", description: err.message, variant: "destructive" });
+    onError: (err: unknown) => {
+      const message = err instanceof Error ? err.message : "Failed to create booking";
+      toast({ title: "Booking failed", description: message, variant: "destructive" });
     },
   });
 
@@ -105,9 +138,9 @@ export default function Bookings() {
             <h2 className="font-display text-lg font-semibold mb-4">Book a Charging Slot</h2>
             <div className="space-y-4">
               <div>
-                <label className="text-sm font-medium text-foreground mb-1.5 block">Station</label>
+                <label htmlFor={stationFieldId} className="text-sm font-medium text-foreground mb-1.5 block">Station</label>
                 <Select value={selectedStation} onValueChange={setSelectedStation}>
-                  <SelectTrigger>
+                  <SelectTrigger id={stationFieldId}>
                     <SelectValue placeholder="Select a station" />
                   </SelectTrigger>
                   <SelectContent>
@@ -121,10 +154,11 @@ export default function Bookings() {
               </div>
 
               <div>
-                <label className="text-sm font-medium text-foreground mb-1.5 block">Date</label>
+                <label htmlFor={dateFieldId} className="text-sm font-medium text-foreground mb-1.5 block">Date</label>
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button
+                      id={dateFieldId}
                       variant="outline"
                       className={cn("w-full justify-start text-left font-normal", !selectedDate && "text-muted-foreground")}
                     >
@@ -146,17 +180,16 @@ export default function Bookings() {
               </div>
 
               <div>
-                <label className="text-sm font-medium text-foreground mb-1.5 block">Time Slot</label>
-                <Select value={selectedSlot} onValueChange={setSelectedSlot}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select time" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {TIME_SLOTS.map((slot) => (
-                      <SelectItem key={slot} value={slot}>{slot}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <label htmlFor={timeSlotFieldId} className="text-sm font-medium text-foreground mb-1.5 block">Time Slot</label>
+                <div id={timeSlotFieldId}>
+                  <TimeSlotPicker
+                    stationId={selectedStation}
+                    selectedDate={selectedDate}
+                    selectedSlot={selectedSlot}
+                    onSelectSlot={setSelectedSlot}
+                    userId={user?.id}
+                  />
+                </div>
               </div>
 
               <Button
@@ -190,7 +223,7 @@ export default function Bookings() {
                       </div>
                       <div>
                         <p className="font-medium text-sm text-foreground">
-                          {(booking as any).stations?.name || "Station"}
+                          {booking.stations?.name || "Station"}
                         </p>
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
                           <CalendarIcon className="h-3 w-3" />

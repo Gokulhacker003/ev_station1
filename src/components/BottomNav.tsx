@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
-import { Home, Map, List, CalendarCheck, User } from "lucide-react";
+import { Home, Map, List, CalendarCheck, User, Settings } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 
 const links = [
@@ -7,7 +7,8 @@ const links = [
   { to: "/map", label: "Map", icon: Map },
   { to: "/stations", label: "Stations", icon: List },
   { to: "/bookings", label: "Bookings", icon: CalendarCheck, auth: true },
-  { to: "/login", label: "Profile", icon: User },
+  { to: "/settings", label: "Settings", icon: Settings, auth: true },
+  { to: "/login", label: "Login", icon: User, guestOnly: true },
 ];
 
 export function BottomNav() {
@@ -16,7 +17,7 @@ export function BottomNav() {
 
   const filtered = links.filter((l) => {
     if (l.auth && !user) return false;
-    if (l.to === "/login" && user) return false;
+    if (l.guestOnly && user) return false;
     return true;
   });
 

@@ -67,7 +67,7 @@ export function EVChatbot() {
             animate={{ scale: 1 }}
             exit={{ scale: 0 }}
             onClick={() => setOpen(true)}
-            className="fixed bottom-20 md:bottom-6 right-4 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30 hover:shadow-xl hover:shadow-primary/40 transition-shadow"
+            className="fixed bottom-24 right-5 z-[9999] flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30 hover:shadow-xl hover:shadow-primary/40 hover:scale-110 transition-all duration-200"
           >
             <MessageCircle className="h-6 w-6" />
           </motion.button>
@@ -81,7 +81,7 @@ export function EVChatbot() {
             initial={{ opacity: 0, y: 40, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 40, scale: 0.95 }}
-            className="fixed bottom-20 md:bottom-6 right-4 z-50 w-[340px] max-h-[500px] flex flex-col rounded-2xl shadow-2xl border border-border overflow-hidden bg-card"
+            className="fixed bottom-24 right-4 z-[9999] w-[340px] max-h-[500px] flex flex-col rounded-2xl shadow-2xl border border-border overflow-hidden bg-card md:w-[360px] md:max-h-[520px]"
           >
             {/* Header */}
             <div className="flex items-center justify-between p-4 bg-primary text-primary-foreground">

@@ -1,7 +1,7 @@
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
-import { Zap, Map, List, CalendarCheck, LayoutDashboard, LogOut, Menu, X } from "lucide-react";
+import { Zap, Map, List, CalendarCheck, LayoutDashboard, LogOut, Menu, X, Settings } from "lucide-react";
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -10,6 +10,7 @@ const navLinks = [
   { to: "/map", label: "Map", icon: Map },
   { to: "/stations", label: "Stations", icon: List },
   { to: "/bookings", label: "Bookings", icon: CalendarCheck, auth: true },
+  { to: "/settings", label: "Settings", icon: Settings, auth: true },
 ];
 
 export function Navbar() {
@@ -56,9 +57,9 @@ export function Navbar() {
           })}
           {isAdmin && (
             <Link
-              to="/admin"
+              to="/admin/dashboard"
               className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                location.pathname === "/admin"
+                location.pathname.startsWith("/admin")
                   ? "bg-accent text-accent-foreground"
                   : "text-muted-foreground hover:text-foreground hover:bg-muted"
               }`}
@@ -115,7 +116,7 @@ export function Navbar() {
               })}
               {isAdmin && (
                 <Link
-                  to="/admin"
+                  to="/admin/dashboard"
                   onClick={() => setMobileOpen(false)}
                   className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted"
                 >
