@@ -1,4 +1,3 @@
-
 -- Create app_role enum
 CREATE TYPE public.app_role AS ENUM ('admin', 'user');
 
@@ -89,6 +88,7 @@ CREATE POLICY "Admins can update stations" ON public.stations FOR UPDATE TO auth
 CREATE POLICY "Admins can delete stations" ON public.stations FOR DELETE TO authenticated USING (public.has_role(auth.uid(), 'admin'));
 
 -- Bookings policies
+CREATE POLICY "Admins can view all bookings" ON public.bookings FOR SELECT TO authenticated USING (public.has_role(auth.uid(), 'admin'));
 CREATE POLICY "Users can view own bookings" ON public.bookings FOR SELECT TO authenticated USING (auth.uid() = user_id);
 CREATE POLICY "Users can create own bookings" ON public.bookings FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
 CREATE POLICY "Users can update own bookings" ON public.bookings FOR UPDATE TO authenticated USING (auth.uid() = user_id);

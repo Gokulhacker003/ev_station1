@@ -4,7 +4,7 @@ import { LoginForm } from "@/components/LoginForm";
 import { Loader } from "@/components/Loader";
 
 export default function Login() {
-  const { user, loading } = useAuth();
+  const { user, isAdmin, loading } = useAuth();
 
   if (loading) {
     return (
@@ -14,7 +14,7 @@ export default function Login() {
     );
   }
 
-  if (user) return <Navigate to="/" replace />;
+  if (user) return <Navigate to={isAdmin ? "/admin/dashboard" : "/"} replace />;
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">

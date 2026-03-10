@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 
 export default function Bookings() {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const preselectedStation = searchParams.get("station");
@@ -126,6 +126,24 @@ export default function Bookings() {
       toast({ title: "Booking cancelled" });
     },
   });
+
+  const [adminBookings, setAdminBookings] = useState([]);
+
+  useEffect(() => {
+    if (isAdmin) {
+      // Fetch all bookings for admin
+      supabase
+        .from("bookings")
+        .select("*, stations(name, charger_type), users(full_name)")
+        .then(({ data, error }) => {
+          if (error) {
+            console.error("Error fetching admin bookings:", error);
+          } else {
+            setAdminBookings(data);
+          }
+        });
+    }
+  }, [isAdmin]);
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="min-h-[calc(100vh-4rem)]">
@@ -264,6 +282,21 @@ export default function Bookings() {
             )}
           </div>
         </div>
+
+        {isAdmin && (
+          <div>
+            <h2 className="font-display text-lg font-semibold mb-4">All Bookings (Admin)</h2>
+            {adminBookings.map((booking) => (
+              <div key={booking.id}>
+                <p>Station: {booking.stations?.name}</p>
+                <p>User: {booking.users?.full_name}</p>
+                <p>Date: {booking.booking_date}</p>
+                <p>Time Slot: {booking.time_slot}</p>
+                <p>Status: {booking.status}</p>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </motion.div>
   );

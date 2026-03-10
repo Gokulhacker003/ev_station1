@@ -5,15 +5,18 @@ import { useAuth } from "@/contexts/AuthContext";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { MapView } from "@/components/MapView";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader } from "@/components/Loader";
+import { MapView } from "@/components/MapView";
 import { toast } from "@/hooks/use-toast";
 import { Constants } from "@/integrations/supabase/types";
 import type { Database } from "@/integrations/supabase/types";
 import type { Tables } from "@/integrations/supabase/types";
-import { Plus, Pencil, Trash2, X } from "lucide-react";
+import { Plus, Pencil, Trash2, X, CalendarCheck, Clock, Zap } from "lucide-react";
+import { format } from "date-fns";
 
 type ChargerType = Database["public"]["Enums"]["charger_type"];
 
@@ -24,6 +27,8 @@ interface StationForm {
   charger_type: ChargerType;
   available_slots: string;
 }
+
+type BookingWithStation = Tables<"bookings"> & { stations: { name: string } | null };
 
 const emptyForm: StationForm = {
   name: "",
@@ -120,15 +125,102 @@ export default function AdminDashboard() {
     setMapPosition([lat, lng]);
   };
 
+  // All bookings (for Bookings tab)
+  const { data: allBookings, isLoading: bookingsLoading } = useQuery<BookingWithStation[]>({
+    queryKey: ["admin-all-bookings"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("bookings")
+        .select("*, stations(name)")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as BookingWithStation[];
+    },
+  });
+
+  // Profiles map for resolving user names
+  const { data: profiles } = useQuery({
+    queryKey: ["admin-profiles"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("profiles").select("user_id, full_name");
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const profileMap: Record<string, string> = profiles
+    ? Object.fromEntries(profiles.map((p) => [p.user_id, p.full_name ?? "Unknown"]))
+    : {};
+
+  // Recent = last 10 bookings
+  const recentBookings = allBookings?.slice(0, 10) ?? [];
+
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="min-h-[calc(100vh-4rem)]">
       <div className="container mx-auto px-4 py-6">
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="font-display text-2xl font-bold text-foreground">Admin Dashboard</h1>
-          <Button onClick={() => { setShowForm(!showForm); if (showForm) resetForm(); }} className="gap-1.5">
-            {showForm ? <><X className="h-4 w-4" /> Cancel</> : <><Plus className="h-4 w-4" /> Add Station</>}
-          </Button>
-        </div>
+        <h1 className="font-display text-2xl font-bold text-foreground mb-6">Admin Dashboard</h1>
+
+        <Tabs defaultValue="recent">
+          <TabsList className="mb-6">
+            <TabsTrigger value="recent">Recent</TabsTrigger>
+            <TabsTrigger value="stations">Stations</TabsTrigger>
+            <TabsTrigger value="bookings">All Bookings</TabsTrigger>
+          </TabsList>
+
+          {/* ── RECENT TAB ── */}
+          <TabsContent value="recent">
+            <div className="space-y-3">
+              <h2 className="font-display text-lg font-semibold">Recent Bookings</h2>
+              {bookingsLoading ? (
+                <div className="flex justify-center py-12"><Loader /></div>
+              ) : recentBookings.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">No bookings yet.</div>
+              ) : (
+                recentBookings.map((booking, i) => (
+                  <motion.div
+                    key={booking.id}
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: i * 0.04 }}
+                    className="glass rounded-xl p-4 flex items-center justify-between"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+                        <Zap className="h-5 w-5 text-primary" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-sm">{booking.stations?.name ?? "Station"}</p>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <span>{profileMap[booking.user_id] ?? booking.user_id.slice(0, 8)}</span>
+                          <CalendarCheck className="h-3 w-3 ml-1" />
+                          <span>{format(new Date(booking.booking_date), "PP")}</span>
+                          <Clock className="h-3 w-3" />
+                          <span>{booking.time_slot}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <Badge
+                      variant={
+                        booking.status === "confirmed" ? "default" :
+                        booking.status === "cancelled" ? "destructive" : "secondary"
+                      }
+                    >
+                      {booking.status}
+                    </Badge>
+                  </motion.div>
+                ))
+              )}
+            </div>
+          </TabsContent>
+
+          {/* ── STATIONS TAB ── */}
+          <TabsContent value="stations">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-display text-lg font-semibold">Stations</h2>
+              <Button onClick={() => { setShowForm(!showForm); if (showForm) resetForm(); }} className="gap-1.5">
+                {showForm ? <><X className="h-4 w-4" /> Cancel</> : <><Plus className="h-4 w-4" /> Add Station</>}
+              </Button>
+            </div>
 
         {/* Add / Edit Form */}
         {showForm && (
@@ -269,6 +361,58 @@ export default function AdminDashboard() {
             </Table>
           </div>
         )}
+          </TabsContent>
+
+          {/* ── ALL BOOKINGS TAB ── */}
+          <TabsContent value="bookings">
+            <h2 className="font-display text-lg font-semibold mb-4">All Bookings</h2>
+            {bookingsLoading ? (
+              <div className="flex justify-center py-12"><Loader /></div>
+            ) : (
+              <div className="glass rounded-xl overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Station</TableHead>
+                      <TableHead>User</TableHead>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Time Slot</TableHead>
+                      <TableHead>Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {allBookings && allBookings.length > 0 ? (
+                      allBookings.map((booking) => (
+                        <TableRow key={booking.id}>
+                          <TableCell className="font-medium">{booking.stations?.name ?? "—"}</TableCell>
+                          <TableCell className="text-sm">{profileMap[booking.user_id] ?? booking.user_id.slice(0, 8)}</TableCell>
+                          <TableCell>{format(new Date(booking.booking_date), "PP")}</TableCell>
+                          <TableCell>{booking.time_slot}</TableCell>
+                          <TableCell>
+                            <Badge
+                              variant={
+                                booking.status === "confirmed" ? "default" :
+                                booking.status === "cancelled" ? "destructive" : "secondary"
+                              }
+                            >
+                              {booking.status}
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                          No bookings yet.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </TabsContent>
+        </Tabs>
       </div>
     </motion.div>
   );

@@ -29,10 +29,10 @@ const App = () => (
         <AuthProvider>
           <Navbar />
           <Routes>
-            <Route path="/" element={<Home />} />
+            <Route path="/" element={<ProtectedRoute guestOrUser><Home /></ProtectedRoute>} />
             <Route path="/login" element={<Login />} />
-            <Route path="/map" element={<MapPage />} />
-            <Route path="/stations" element={<Stations />} />
+            <Route path="/map" element={<ProtectedRoute guestOrUser><MapPage /></ProtectedRoute>} />
+            <Route path="/stations" element={<ProtectedRoute guestOrUser><Stations /></ProtectedRoute>} />
             <Route
               path="/bookings"
               element={

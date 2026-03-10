@@ -145,7 +145,7 @@ export function MapView({
     }
   }, [selectedPosition]);
 
-  // Draw a route line from user location to selected station on this site map
+  // Draw real road route from user location to station using OSRM
   useEffect(() => {
     if (!mapRef.current) return;
 
@@ -154,17 +154,42 @@ export function MapView({
       routeLineRef.current = null;
     }
 
-    if (userLocation && routeTarget) {
-      routeLineRef.current = L.polyline([userLocation, routeTarget], {
-        color: "#22c55e",
-        weight: 4,
-        opacity: 0.9,
-        dashArray: "8 8",
-      }).addTo(mapRef.current);
+    if (!userLocation || !routeTarget) return;
 
-      const bounds = L.latLngBounds([userLocation, routeTarget]);
-      mapRef.current.fitBounds(bounds, { padding: [40, 40] });
-    }
+    const [userLat, userLng] = userLocation;
+    const [targetLat, targetLng] = routeTarget;
+
+    fetch(
+      `https://router.project-osrm.org/route/v1/driving/${userLng},${userLat};${targetLng},${targetLat}?overview=full&geometries=geojson`
+    )
+      .then((res) => res.json())
+      .then((data) => {
+        if (!mapRef.current) return;
+        const coords: [number, number][] = data.routes?.[0]?.geometry?.coordinates;
+        if (!coords?.length) return;
+
+        // OSRM returns [lng, lat] — Leaflet needs [lat, lng]
+        const latLngs: L.LatLngTuple[] = coords.map(([lng, lat]) => [lat, lng]);
+
+        routeLineRef.current = L.polyline(latLngs, {
+          color: "#22c55e",
+          weight: 5,
+          opacity: 0.95,
+        }).addTo(mapRef.current);
+
+        mapRef.current.fitBounds(routeLineRef.current.getBounds(), { padding: [50, 50] });
+      })
+      .catch(() => {
+        // Fallback: straight line if routing fails
+        if (!mapRef.current) return;
+        routeLineRef.current = L.polyline([userLocation, routeTarget], {
+          color: "#22c55e",
+          weight: 4,
+          opacity: 0.9,
+          dashArray: "8 8",
+        }).addTo(mapRef.current);
+        mapRef.current.fitBounds(L.latLngBounds([userLocation, routeTarget]), { padding: [40, 40] });
+      });
   }, [userLocation, routeTarget]);
 
   return (
