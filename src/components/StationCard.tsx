@@ -15,7 +15,9 @@ interface StationCardProps {
 export function StationCard({ station, index = 0, distanceKm }: StationCardProps) {
   const navigate = useNavigate();
 
-  const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${station.latitude},${station.longitude}`;
+  const handleNavigateToMap = () => {
+    navigate(`/map?station=${station.id}`);
+  };
 
   return (
     <motion.div
@@ -70,11 +72,14 @@ export function StationCard({ station, index = 0, distanceKm }: StationCardProps
         >
           Book Now
         </Button>
-        <Button size="sm" variant="outline" className="gap-1" asChild>
-          <a href={googleMapsUrl} target="_blank" rel="noopener noreferrer">
-            <Navigation className="h-3.5 w-3.5" />
-            Navigate
-          </a>
+        <Button
+          size="sm"
+          variant="outline"
+          className="gap-1"
+          onClick={handleNavigateToMap}
+        >
+          <Navigation className="h-3.5 w-3.5" />
+          Navigate
         </Button>
       </div>
     </motion.div>
