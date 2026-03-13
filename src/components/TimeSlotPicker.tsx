@@ -1,3 +1,4 @@
+import React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
@@ -28,7 +29,7 @@ export function TimeSlotPicker({
   userId,
 }: TimeSlotPickerProps) {
   // Fetch booked slots for this station and date
-  const { data: bookedSlots, isLoading } = useQuery({
+  const { data: bookedSlots, isLoading, refetch } = useQuery({
     queryKey: ["booked-slots", stationId, selectedDate],
     queryFn: async () => {
       if (!stationId || !selectedDate) return [];
@@ -36,18 +37,51 @@ export function TimeSlotPicker({
       const dateStr = format(selectedDate, "yyyy-MM-dd");
       const { data, error } = await supabase
         .from("bookings")
-        .select("time_slot, user_id, status")
+        .select("time_slot, user_id, status, id")
         .eq("station_id", stationId)
         .eq("booking_date", dateStr)
         .neq("status", "cancelled");
       
-      if (error) throw error;
+      if (error) {
+        console.error("Error fetching booked slots:", error);
+        throw error;
+      }
+      
+      console.log("Booked slots for", dateStr, ":", data);
       return data || [];
     },
     enabled: !!stationId && !!selectedDate,
+    refetchOnWindowFocus: true,
+    staleTime: 30000, // 30 seconds
   });
 
-  // Check if current user already has a booking at this slot
+  // Real-time subscription to booking changes
+  React.useEffect(() => {
+    if (!stationId || !selectedDate) return;
+
+    const channel = supabase
+      .channel('booking_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'bookings',
+          filter: `station_id=eq.${stationId}`,
+        },
+        () => {
+          console.log('Booking changed, refetching slots...');
+          refetch();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [stationId, selectedDate, refetch]);
+
+  // Enhanced slot checking functions
   const isUserBooked = (slot: string) => {
     if (!userId || !bookedSlots) return false;
     return bookedSlots.some(
@@ -55,10 +89,32 @@ export function TimeSlotPicker({
     );
   };
 
-  // Check if slot is fully booked by others
+  // Check if slot is fully booked by others (enhanced)
   const isSlotBooked = (slot: string) => {
     if (!bookedSlots) return false;
-    return bookedSlots.some((booking) => booking.time_slot === slot);
+    const bookingsForSlot = bookedSlots.filter((booking) => booking.time_slot === slot);
+    console.log(`Slot ${slot}: ${bookingsForSlot.length} bookings`, bookingsForSlot);
+    return bookingsForSlot.length > 0;
+  };
+
+  // Get slot status for better UI feedback
+  const getSlotStatus = (slot: string) => {
+    if (!bookedSlots) return 'available';
+    
+    const userHasBooking = isUserBooked(slot);
+    const othersHaveBooking = bookedSlots.some(
+      (booking) => booking.time_slot === slot && booking.user_id !== userId
+    );
+    
+    if (userHasBooking) return 'user-booked';
+    if (othersHaveBooking) return 'occupied';
+    return 'available';
+  };
+
+  // Count how many bookings exist for a slot
+  const getSlotBookingCount = (slot: string) => {
+    if (!bookedSlots) return 0;
+    return bookedSlots.filter((booking) => booking.time_slot === slot).length;
   };
 
   if (!stationId || !selectedDate) {
@@ -84,24 +140,24 @@ export function TimeSlotPicker({
       <div className="flex items-center gap-4 text-xs text-muted-foreground">
         <div className="flex items-center gap-1">
           <div className="w-3 h-3 rounded bg-primary"></div>
-          <span>Available</span>
+          <span>Available ({TIME_SLOTS.filter(slot => getSlotStatus(slot) === 'available').length})</span>
         </div>
         <div className="flex items-center gap-1">
-          <div className="w-3 h-3 rounded bg-destructive/20"></div>
-          <span>Booked</span>
+          <div className="w-3 h-3 rounded bg-destructive/60"></div>
+          <span>Occupied ({TIME_SLOTS.filter(slot => getSlotStatus(slot) === 'occupied').length})</span>
         </div>
         <div className="flex items-center gap-1">
           <div className="w-3 h-3 rounded bg-green-500"></div>
-          <span>Your Booking</span>
+          <span>Your Bookings ({TIME_SLOTS.filter(slot => getSlotStatus(slot) === 'user-booked').length})</span>
         </div>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
         {TIME_SLOTS.map((slot, index) => {
-          const isBooked = isSlotBooked(slot);
-          const isUserSlot = isUserBooked(slot);
+          const status = getSlotStatus(slot);
+          const bookingCount = getSlotBookingCount(slot);
           const isSelected = selectedSlot === slot;
-          const isDisabled = isBooked && !isUserSlot;
+          const isDisabled = status === 'occupied';
 
           return (
             <motion.button
@@ -114,29 +170,45 @@ export function TimeSlotPicker({
               className={cn(
                 "relative p-3 rounded-lg border-2 transition-all duration-200 font-medium text-sm",
                 "hover:scale-105 active:scale-95",
-                isSelected && !isUserSlot && "border-primary bg-primary text-primary-foreground shadow-lg",
-                isUserSlot && "border-green-500 bg-green-500/10 text-green-700 dark:text-green-400",
-                isDisabled && "border-destructive/20 bg-destructive/5 text-destructive/40 cursor-not-allowed hover:scale-100",
-                !isSelected && !isBooked && !isUserSlot && "border-border hover:border-primary/50 hover:bg-accent",
-                isBooked && !isUserSlot && !isDisabled && "opacity-50"
+                
+                // Available slot
+                status === 'available' && !isSelected && "border-border hover:border-primary/50 hover:bg-accent",
+                status === 'available' && isSelected && "border-primary bg-primary text-primary-foreground shadow-lg",
+                
+                // User's booking
+                status === 'user-booked' && "border-green-500 bg-green-500/10 text-green-700 dark:text-green-400",
+                
+                // Occupied slot (disabled)
+                status === 'occupied' && "border-destructive/30 bg-destructive/10 text-destructive/60 cursor-not-allowed hover:scale-100 opacity-60",
               )}
             >
               <div className="flex flex-col items-center gap-1">
-                <Clock className="h-4 w-4" />
+                <Clock className={cn(
+                  "h-4 w-4",
+                  status === 'occupied' && "opacity-50"
+                )} />
                 <span className="text-xs leading-tight">{slot}</span>
+                
+                {/* Show booking count for debugging */}
+                {bookingCount > 0 && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-background/80 text-muted-foreground">
+                    {bookingCount}
+                  </span>
+                )}
               </div>
 
-              {isSelected && !isUserSlot && (
+              {/* Status icons */}
+              {isSelected && status === 'available' && (
                 <CheckCircle2 className="absolute top-1 right-1 h-4 w-4" />
               )}
               
-              {isDisabled && (
-                <XCircle className="absolute top-1 right-1 h-4 w-4" />
+              {status === 'occupied' && (
+                <XCircle className="absolute top-1 right-1 h-4 w-4 text-destructive" />
               )}
 
-              {isUserSlot && (
+              {status === 'user-booked' && (
                 <div className="absolute top-1 right-1">
-                  <CheckCircle2 className="h-4 w-4" />
+                  <CheckCircle2 className="h-4 w-4 text-green-600" />
                 </div>
               )}
             </motion.button>

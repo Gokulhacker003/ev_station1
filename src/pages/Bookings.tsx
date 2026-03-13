@@ -77,48 +77,77 @@ export default function Bookings() {
 
       const dateStr = format(selectedDate, "yyyy-MM-dd");
 
-      // Check if user already has a booking for this slot
-      const { data: existingBooking } = await supabase
-        .from("bookings")
-        .select("id")
-        .eq("user_id", user.id)
-        .eq("station_id", selectedStation)
-        .eq("booking_date", dateStr)
-        .eq("time_slot", selectedSlot)
-        .neq("status", "cancelled")
-        .maybeSingle();
+      console.log("Attempting to book:", {
+        station: selectedStation,
+        date: dateStr,
+        slot: selectedSlot,
+        user: user.id
+      });
 
-      if (existingBooking) {
-        throw new Error("You already have a booking for this time slot");
-      }
-
-      // Check if slot is available (not booked by others)
-      const { data: otherBookings } = await supabase
+      // First, do a fresh check of all bookings for this slot to prevent race conditions
+      const { data: allBookingsForSlot, error: checkError } = await supabase
         .from("bookings")
-        .select("id")
+        .select("id, user_id, status")
         .eq("station_id", selectedStation)
         .eq("booking_date", dateStr)
         .eq("time_slot", selectedSlot)
         .neq("status", "cancelled");
 
-      if (otherBookings && otherBookings.length > 0) {
-        throw new Error("This time slot is already booked");
+      if (checkError) {
+        console.error("Error checking existing bookings:", checkError);
+        throw new Error("Failed to verify slot availability");
+      }
+
+      console.log("Existing bookings for this slot:", allBookingsForSlot);
+
+      // Check if user already has a booking for this slot
+      const userExistingBooking = allBookingsForSlot?.find(booking => booking.user_id === user.id);
+      if (userExistingBooking) {
+        throw new Error("You already have a booking for this time slot");
+      }
+
+      // Check if slot is available (not booked by others)
+      const otherBookings = allBookingsForSlot?.filter(booking => booking.user_id !== user.id) || [];
+      if (otherBookings.length > 0) {
+        throw new Error(`This time slot is already booked by another user (${otherBookings.length} booking(s))`);
       }
 
       // Create the booking
-      const { error } = await supabase.from("bookings").insert({
-        user_id: user.id,
-        station_id: selectedStation,
-        booking_date: dateStr,
-        time_slot: selectedSlot,
-      });
+      const { data: newBooking, error } = await supabase
+        .from("bookings")
+        .insert({
+          user_id: user.id,
+          station_id: selectedStation,
+          booking_date: dateStr,
+          time_slot: selectedSlot,
+          status: "confirmed"
+        })
+        .select()
+        .single();
       
-      if (error) throw error;
+      if (error) {
+        console.error("Failed to create booking:", error);
+        if (error.code === '23505') { // Unique constraint violation
+          throw new Error("This time slot was just booked by someone else. Please select another slot.");
+        }
+        throw error;
+      }
+
+      console.log("Booking created successfully:", newBooking);
+      return newBooking;
     },
     onSuccess: () => {
+      // Invalidate all relevant queries to refresh data
       queryClient.invalidateQueries({ queryKey: ["bookings"] });
       queryClient.invalidateQueries({ queryKey: ["booked-slots"] });
-      toast({ title: "Booking confirmed!", description: "Your charging slot has been reserved." });
+      queryClient.invalidateQueries({ queryKey: ["stations-booking"] });
+      
+      toast({ 
+        title: "Booking confirmed!", 
+        description: `Your charging slot for ${selectedSlot} has been reserved.` 
+      });
+      
+      // Reset form
       setSelectedStation("");
       setSelectedDate(undefined);
       setSelectedSlot("");
@@ -131,16 +160,26 @@ export default function Bookings() {
 
   const cancelBooking = useMutation({
     mutationFn: async (bookingId: string) => {
+      console.log("Cancelling booking:", bookingId);
       const { error } = await supabase
         .from("bookings")
         .update({ status: "cancelled" as const })
         .eq("id", bookingId);
-      if (error) throw error;
+      if (error) {
+        console.error("Cancel booking error:", error);
+        throw error;
+      }
     },
     onSuccess: () => {
+      // Invalidate all relevant queries
       queryClient.invalidateQueries({ queryKey: ["bookings"] });
-      toast({ title: "Booking cancelled" });
+      queryClient.invalidateQueries({ queryKey: ["booked-slots"] });
+      toast({ title: "Booking cancelled", description: "The time slot is now available for others." });
     },
+    onError: (error: unknown) => {
+      const message = error instanceof Error ? error.message : "Failed to cancel booking";
+      toast({ title: "Cancel failed", description: message, variant: "destructive" });
+    }
   });
 
   return (
