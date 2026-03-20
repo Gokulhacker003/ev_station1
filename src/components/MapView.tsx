@@ -51,15 +51,27 @@ export function MapView({
 }: MapViewProps) {
   const mapRef = useRef<L.Map | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const isMountedRef = useRef(false);
   const markersRef = useRef<L.LayerGroup | null>(null);
   const selectedMarkerRef = useRef<L.Marker | null>(null);
   const userMarkerRef = useRef<L.Marker | null>(null);
   const routeLineRef = useRef<L.Polyline | null>(null);
 
+  const getSafeMap = () => {
+    const map = mapRef.current;
+    const container = containerRef.current;
+    if (!isMountedRef.current || !map || !container || !document.body.contains(container)) {
+      return null;
+    }
+    return map;
+  };
+
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
+    isMountedRef.current = true;
 
-    mapRef.current = L.map(containerRef.current).setView(center, zoom);
+    mapRef.current = L.map(containerRef.current);
+    mapRef.current.setView(center, zoom, { animate: false });
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     }).addTo(mapRef.current);
@@ -74,37 +86,62 @@ export function MapView({
 
     // Leaflet sometimes measures incorrectly on first paint; force a relayout.
     const resizeTimer = window.setTimeout(() => {
-      mapRef.current?.invalidateSize();
-    }, 100);
+      const map = getSafeMap();
+      map?.invalidateSize({ pan: false, animate: false });
+    }, 200);
 
     const handleResize = () => {
-      mapRef.current?.invalidateSize();
+      const map = getSafeMap();
+      map?.invalidateSize({ pan: false, animate: false });
     };
     window.addEventListener("resize", handleResize);
 
     return () => {
+      isMountedRef.current = false;
       window.clearTimeout(resizeTimer);
       window.removeEventListener("resize", handleResize);
       mapRef.current?.remove();
       mapRef.current = null;
     };
-  }, [onMapClick, center, zoom]);
+  }, []);
 
   useEffect(() => {
-    if (!mapRef.current) return;
-    mapRef.current.invalidateSize();
+    const map = getSafeMap();
+    if (!map || !onMapClick) return;
+
+    const clickHandler = (e: L.LeafletMouseEvent) => {
+      onMapClick(e.latlng.lat, e.latlng.lng);
+    };
+
+    map.on("click", clickHandler);
+    return () => {
+      map.off("click", clickHandler);
+    };
+  }, [onMapClick]);
+
+  useEffect(() => {
+    const map = getSafeMap();
+    if (!map) return;
+    map.setView(center, zoom, { animate: false });
+  }, [center, zoom]);
+
+  useEffect(() => {
+    const map = getSafeMap();
+    if (!map) return;
+    map.invalidateSize({ pan: false, animate: false });
   }, [stations.length, userLocation, routeTarget, selectedPosition]);
 
   // Re-center when user location becomes available
   useEffect(() => {
-    if (mapRef.current && userLocation) {
-      mapRef.current.setView(userLocation, 13);
-    }
+    const map = getSafeMap();
+    if (!map || !userLocation) return;
+    map.setView(userLocation, 13, { animate: false });
   }, [userLocation]);
 
   // User location marker
   useEffect(() => {
-    if (!mapRef.current) return;
+    const map = getSafeMap();
+    if (!map) return;
     if (userMarkerRef.current) {
       userMarkerRef.current.remove();
       userMarkerRef.current = null;
@@ -112,13 +149,14 @@ export function MapView({
     if (userLocation) {
       userMarkerRef.current = L.marker(userLocation, { icon: userIcon })
         .bindPopup('<strong>📍 Your Location</strong>')
-        .addTo(mapRef.current);
+        .addTo(map);
     }
   }, [userLocation]);
 
   // Update station markers
   useEffect(() => {
-    if (!markersRef.current) return;
+    const map = getSafeMap();
+    if (!map || !markersRef.current) return;
     markersRef.current.clearLayers();
 
     stations.forEach((station) => {
@@ -151,20 +189,24 @@ export function MapView({
 
   // Handle selected position marker (for admin map picker)
   useEffect(() => {
-    if (!mapRef.current) return;
+    const map = getSafeMap();
+    if (!map) return;
     if (selectedMarkerRef.current) {
       selectedMarkerRef.current.remove();
       selectedMarkerRef.current = null;
     }
     if (selectedPosition) {
-      selectedMarkerRef.current = L.marker(selectedPosition).addTo(mapRef.current);
-      mapRef.current.setView(selectedPosition, Math.max(mapRef.current.getZoom(), 12));
+      selectedMarkerRef.current = L.marker(selectedPosition).addTo(map);
+      map.setView(selectedPosition, Math.max(map.getZoom(), 12), { animate: false });
     }
   }, [selectedPosition]);
 
   // Draw real road route from user location to station using OSRM
   useEffect(() => {
-    if (!mapRef.current) return;
+    const map = getSafeMap();
+    if (!map) return;
+
+    let isCancelled = false;
 
     if (routeLineRef.current) {
       routeLineRef.current.remove();
@@ -181,7 +223,8 @@ export function MapView({
     )
       .then((res) => res.json())
       .then((data) => {
-        if (!mapRef.current) return;
+        const safeMap = getSafeMap();
+        if (isCancelled || !safeMap) return;
         const coords: [number, number][] = data.routes?.[0]?.geometry?.coordinates;
         if (!coords?.length) return;
 
@@ -192,21 +235,29 @@ export function MapView({
           color: "#22c55e",
           weight: 5,
           opacity: 0.95,
-        }).addTo(mapRef.current);
+        }).addTo(safeMap);
 
-        mapRef.current.fitBounds(routeLineRef.current.getBounds(), { padding: [50, 50] });
+        safeMap.fitBounds(routeLineRef.current.getBounds(), { padding: [50, 50], animate: false });
       })
       .catch(() => {
         // Fallback: straight line if routing fails
-        if (!mapRef.current) return;
+        const safeMap = getSafeMap();
+        if (isCancelled || !safeMap) return;
         routeLineRef.current = L.polyline([userLocation, routeTarget], {
           color: "#22c55e",
           weight: 4,
           opacity: 0.9,
           dashArray: "8 8",
-        }).addTo(mapRef.current);
-        mapRef.current.fitBounds(L.latLngBounds([userLocation, routeTarget]), { padding: [40, 40] });
+        }).addTo(safeMap);
+        safeMap.fitBounds(L.latLngBounds([userLocation, routeTarget]), {
+          padding: [40, 40],
+          animate: false,
+        });
       });
+
+    return () => {
+      isCancelled = true;
+    };
   }, [userLocation, routeTarget]);
 
   return (
