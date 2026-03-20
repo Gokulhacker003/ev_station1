@@ -56,6 +56,9 @@ export function MapView({
   const selectedMarkerRef = useRef<L.Marker | null>(null);
   const userMarkerRef = useRef<L.Marker | null>(null);
   const routeLineRef = useRef<L.Polyline | null>(null);
+  const hasCenteredOnUserRef = useRef(false);
+  const hasFittedRouteRef = useRef(false);
+  const lastRouteKeyRef = useRef<string | null>(null);
 
   const getSafeMap = () => {
     const map = mapRef.current;
@@ -77,12 +80,6 @@ export function MapView({
     }).addTo(mapRef.current);
 
     markersRef.current = L.layerGroup().addTo(mapRef.current);
-
-    if (onMapClick) {
-      mapRef.current.on("click", (e: L.LeafletMouseEvent) => {
-        onMapClick(e.latlng.lat, e.latlng.lng);
-      });
-    }
 
     // Leaflet sometimes measures incorrectly on first paint; force a relayout.
     const resizeTimer = window.setTimeout(() => {
@@ -135,6 +132,8 @@ export function MapView({
   useEffect(() => {
     const map = getSafeMap();
     if (!map || !userLocation) return;
+    if (hasCenteredOnUserRef.current) return;
+    hasCenteredOnUserRef.current = true;
     map.setView(userLocation, 13, { animate: false });
   }, [userLocation]);
 
@@ -207,13 +206,24 @@ export function MapView({
     if (!map) return;
 
     let isCancelled = false;
+    let fitTimer: number | null = null;
+
+    const routeKey =
+      userLocation && routeTarget
+        ? `${userLocation[0].toFixed(6)},${userLocation[1].toFixed(6)}|${routeTarget[0].toFixed(6)},${routeTarget[1].toFixed(6)}`
+        : null;
+
+    if (routeKey !== lastRouteKeyRef.current) {
+      hasFittedRouteRef.current = false;
+      lastRouteKeyRef.current = routeKey;
+    }
 
     if (routeLineRef.current) {
       routeLineRef.current.remove();
       routeLineRef.current = null;
     }
 
-    if (!userLocation || !routeTarget) return;
+    if (!userLocation || !routeTarget || hasFittedRouteRef.current) return;
 
     const [userLat, userLng] = userLocation;
     const [targetLat, targetLng] = routeTarget;
@@ -237,7 +247,16 @@ export function MapView({
           opacity: 0.95,
         }).addTo(safeMap);
 
-        safeMap.fitBounds(routeLineRef.current.getBounds(), { padding: [50, 50], animate: false });
+        fitTimer = window.setTimeout(() => {
+          const latestMap = getSafeMap();
+          if (isCancelled || !latestMap || !routeLineRef.current) return;
+          latestMap.invalidateSize({ pan: false, animate: false });
+          latestMap.fitBounds(routeLineRef.current.getBounds(), {
+            padding: [50, 50],
+            animate: false,
+          });
+          hasFittedRouteRef.current = true;
+        }, 200);
       })
       .catch(() => {
         // Fallback: straight line if routing fails
@@ -249,14 +268,24 @@ export function MapView({
           opacity: 0.9,
           dashArray: "8 8",
         }).addTo(safeMap);
-        safeMap.fitBounds(L.latLngBounds([userLocation, routeTarget]), {
-          padding: [40, 40],
-          animate: false,
-        });
+
+        fitTimer = window.setTimeout(() => {
+          const latestMap = getSafeMap();
+          if (isCancelled || !latestMap) return;
+          latestMap.invalidateSize({ pan: false, animate: false });
+          latestMap.fitBounds(L.latLngBounds([userLocation, routeTarget]), {
+            padding: [40, 40],
+            animate: false,
+          });
+          hasFittedRouteRef.current = true;
+        }, 200);
       });
 
     return () => {
       isCancelled = true;
+      if (fitTimer !== null) {
+        window.clearTimeout(fitTimer);
+      }
     };
   }, [userLocation, routeTarget]);
 
