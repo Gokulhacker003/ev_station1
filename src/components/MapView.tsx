@@ -40,7 +40,6 @@ interface MapViewProps {
 
 export function MapView({
   stations,
-  center = [20.5937, 78.9629],
   zoom = 5,
   userLocation,
   routeTarget,
@@ -56,6 +55,8 @@ export function MapView({
   const selectedMarkerRef = useRef<L.Marker | null>(null);
   const userMarkerRef = useRef<L.Marker | null>(null);
   const routeLineRef = useRef<L.Polyline | null>(null);
+  const hasInitializedViewRef = useRef(false);
+  const hasUserInteractedRef = useRef(false);
   const hasCenteredOnUserRef = useRef(false);
   const hasFittedRouteRef = useRef(false);
   const lastRouteKeyRef = useRef<string | null>(null);
@@ -74,7 +75,8 @@ export function MapView({
     isMountedRef.current = true;
 
     mapRef.current = L.map(containerRef.current);
-    mapRef.current.setView(center, zoom, { animate: false });
+    mapRef.current.setView([0, 0], zoom, { animate: false });
+    hasInitializedViewRef.current = true;
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     }).addTo(mapRef.current);
@@ -91,12 +93,21 @@ export function MapView({
       const map = getSafeMap();
       map?.invalidateSize({ pan: false, animate: false });
     };
+
+    const handleUserInteract = () => {
+      hasUserInteractedRef.current = true;
+    };
+
+    mapRef.current.on("zoomstart", handleUserInteract);
+    mapRef.current.on("dragstart", handleUserInteract);
     window.addEventListener("resize", handleResize);
 
     return () => {
       isMountedRef.current = false;
       window.clearTimeout(resizeTimer);
       window.removeEventListener("resize", handleResize);
+      mapRef.current?.off("zoomstart", handleUserInteract);
+      mapRef.current?.off("dragstart", handleUserInteract);
       mapRef.current?.remove();
       mapRef.current = null;
     };
@@ -119,12 +130,6 @@ export function MapView({
   useEffect(() => {
     const map = getSafeMap();
     if (!map) return;
-    map.setView(center, zoom, { animate: false });
-  }, [center, zoom]);
-
-  useEffect(() => {
-    const map = getSafeMap();
-    if (!map) return;
     map.invalidateSize({ pan: false, animate: false });
   }, [stations.length, userLocation, routeTarget, selectedPosition]);
 
@@ -132,7 +137,7 @@ export function MapView({
   useEffect(() => {
     const map = getSafeMap();
     if (!map || !userLocation) return;
-    if (hasCenteredOnUserRef.current) return;
+    if (!hasInitializedViewRef.current || hasCenteredOnUserRef.current || hasUserInteractedRef.current) return;
     hasCenteredOnUserRef.current = true;
     map.setView(userLocation, 13, { animate: false });
   }, [userLocation]);
@@ -208,10 +213,9 @@ export function MapView({
     let isCancelled = false;
     let fitTimer: number | null = null;
 
-    const routeKey =
-      userLocation && routeTarget
-        ? `${userLocation[0].toFixed(6)},${userLocation[1].toFixed(6)}|${routeTarget[0].toFixed(6)},${routeTarget[1].toFixed(6)}`
-        : null;
+    const routeKey = routeTarget
+      ? `${routeTarget[0].toFixed(6)},${routeTarget[1].toFixed(6)}`
+      : null;
 
     if (routeKey !== lastRouteKeyRef.current) {
       hasFittedRouteRef.current = false;
@@ -251,10 +255,12 @@ export function MapView({
           const latestMap = getSafeMap();
           if (isCancelled || !latestMap || !routeLineRef.current) return;
           latestMap.invalidateSize({ pan: false, animate: false });
-          latestMap.fitBounds(routeLineRef.current.getBounds(), {
-            padding: [50, 50],
-            animate: false,
-          });
+          if (!hasUserInteractedRef.current) {
+            latestMap.fitBounds(routeLineRef.current.getBounds(), {
+              padding: [50, 50],
+              animate: false,
+            });
+          }
           hasFittedRouteRef.current = true;
         }, 200);
       })
@@ -273,10 +279,12 @@ export function MapView({
           const latestMap = getSafeMap();
           if (isCancelled || !latestMap) return;
           latestMap.invalidateSize({ pan: false, animate: false });
-          latestMap.fitBounds(L.latLngBounds([userLocation, routeTarget]), {
-            padding: [40, 40],
-            animate: false,
-          });
+          if (!hasUserInteractedRef.current) {
+            latestMap.fitBounds(L.latLngBounds([userLocation, routeTarget]), {
+              padding: [40, 40],
+              animate: false,
+            });
+          }
           hasFittedRouteRef.current = true;
         }, 200);
       });
