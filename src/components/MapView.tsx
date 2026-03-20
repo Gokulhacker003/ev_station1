@@ -31,6 +31,7 @@ interface MapViewProps {
   center?: [number, number];
   zoom?: number;
   userLocation?: [number, number] | null;
+  forceCenterOnUserToken?: number;
   routeTarget?: [number, number] | null;
   onStationClick?: (station: Tables<"stations">) => void;
   onMapClick?: (lat: number, lng: number) => void;
@@ -42,12 +43,14 @@ export function MapView({
   stations,
   zoom = 5,
   userLocation,
+  forceCenterOnUserToken,
   routeTarget,
   onStationClick,
   onMapClick,
   selectedPosition,
   className = "h-[70vh]",
 }: MapViewProps) {
+  const initialZoomRef = useRef(zoom);
   const mapRef = useRef<L.Map | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const isMountedRef = useRef(false);
@@ -60,6 +63,7 @@ export function MapView({
   const hasCenteredOnUserRef = useRef(false);
   const hasFittedRouteRef = useRef(false);
   const lastRouteKeyRef = useRef<string | null>(null);
+  const lastHandledCenterKeyRef = useRef<string | null>(null);
 
   const getSafeMap = () => {
     const map = mapRef.current;
@@ -75,7 +79,7 @@ export function MapView({
     isMountedRef.current = true;
 
     mapRef.current = L.map(containerRef.current);
-    mapRef.current.setView([0, 0], zoom, { animate: false });
+    mapRef.current.setView([0, 0], initialZoomRef.current, { animate: false });
     hasInitializedViewRef.current = true;
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
@@ -141,6 +145,17 @@ export function MapView({
     hasCenteredOnUserRef.current = true;
     map.setView(userLocation, 13, { animate: false });
   }, [userLocation]);
+
+  // Explicitly re-center on user when requested by parent (e.g., Get My Location button).
+  useEffect(() => {
+    const map = getSafeMap();
+    if (!map || !userLocation || !forceCenterOnUserToken) return;
+    const centerKey = `${forceCenterOnUserToken}:${userLocation[0].toFixed(6)},${userLocation[1].toFixed(6)}`;
+    if (lastHandledCenterKeyRef.current === centerKey) return;
+
+    lastHandledCenterKeyRef.current = centerKey;
+    map.setView(userLocation, Math.max(map.getZoom(), 13), { animate: true });
+  }, [forceCenterOnUserToken, userLocation]);
 
   // User location marker
   useEffect(() => {
@@ -213,6 +228,16 @@ export function MapView({
     let isCancelled = false;
     let fitTimer: number | null = null;
 
+    if (!userLocation || !routeTarget) {
+      if (routeLineRef.current) {
+        routeLineRef.current.remove();
+        routeLineRef.current = null;
+      }
+      hasFittedRouteRef.current = false;
+      lastRouteKeyRef.current = null;
+      return;
+    }
+
     const routeKey = routeTarget
       ? `${routeTarget[0].toFixed(6)},${routeTarget[1].toFixed(6)}`
       : null;
@@ -222,12 +247,12 @@ export function MapView({
       lastRouteKeyRef.current = routeKey;
     }
 
+    if (hasFittedRouteRef.current) return;
+
     if (routeLineRef.current) {
       routeLineRef.current.remove();
       routeLineRef.current = null;
     }
-
-    if (!userLocation || !routeTarget || hasFittedRouteRef.current) return;
 
     const [userLat, userLng] = userLocation;
     const [targetLat, targetLng] = routeTarget;

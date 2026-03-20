@@ -22,6 +22,8 @@ export function useGeolocation() {
   });
   const watchIdRef = useRef<number | null>(null);
   const loadingTimeoutRef = useRef<number | null>(null);
+  const fallbackAttemptedRef = useRef(false);
+  const hasPositionRef = useRef(false);
 
   const clearLoadingTimeout = useCallback(() => {
     if (loadingTimeoutRef.current !== null) {
@@ -50,6 +52,8 @@ export function useGeolocation() {
 
   const applyPosition = useCallback((pos: GeolocationPosition) => {
     clearLoadingTimeout();
+    fallbackAttemptedRef.current = false;
+    hasPositionRef.current = true;
     setState((s) => ({
       ...s,
       latitude: pos.coords.latitude,
@@ -60,19 +64,67 @@ export function useGeolocation() {
     }));
   }, [clearLoadingTimeout]);
 
+  const requestBalancedLocation = useCallback(() => {
+    beginLoadingTimeout();
+    navigator.geolocation.getCurrentPosition(applyPosition, (err) => {
+      clearLoadingTimeout();
+      const permissionDenied = err.code === err.PERMISSION_DENIED;
+      const positionUnavailable = err.code === err.POSITION_UNAVAILABLE;
+
+      let message = "Unable to get location.";
+      if (permissionDenied) {
+        message = "Location access denied. Enable location permission in your browser settings.";
+      } else if (positionUnavailable) {
+        message = "Location signal unavailable. Move near open sky and try again.";
+      } else {
+        message = "Location request timed out. Turn on GPS/location services and tap Retry Location.";
+      }
+
+      setState((s) => ({
+        ...s,
+        error: message,
+        loading: false,
+        permission: permissionDenied ? "denied" : s.permission,
+      }));
+    }, {
+      enableHighAccuracy: false,
+      timeout: 20000,
+      maximumAge: 60000,
+    });
+  }, [applyPosition, beginLoadingTimeout, clearLoadingTimeout]);
+
   const handleGeoError = useCallback((err: GeolocationPositionError) => {
     clearLoadingTimeout();
     const permissionDenied = err.code === err.PERMISSION_DENIED;
+    const timedOut = err.code === err.TIMEOUT;
+    const positionUnavailable = err.code === err.POSITION_UNAVAILABLE;
+
+    // If a position already exists, don't surface background watch timeout noise.
+    if (timedOut && hasPositionRef.current) {
+      setState((s) => ({ ...s, loading: false }));
+      return;
+    }
+
+    if (timedOut && !fallbackAttemptedRef.current) {
+      fallbackAttemptedRef.current = true;
+      requestBalancedLocation();
+      return;
+    }
+
     const message = permissionDenied
       ? "Location access denied. Enable location permission in your browser settings."
-      : err.message || "Unable to get location.";
+      : positionUnavailable
+        ? "Location signal unavailable. Move near open sky and try again."
+        : timedOut
+          ? "Location request timed out. Turn on GPS/location services and tap Retry Location."
+          : err.message || "Unable to get location.";
     setState((s) => ({
       ...s,
       error: message,
       loading: false,
       permission: permissionDenied ? "denied" : s.permission,
     }));
-  }, [clearLoadingTimeout]);
+  }, [clearLoadingTimeout, requestBalancedLocation]);
 
   const requestLocation = useCallback(() => {
     if (!navigator.geolocation) {
@@ -91,6 +143,8 @@ export function useGeolocation() {
     }
 
     setState((s) => ({ ...s, loading: true, error: null }));
+    fallbackAttemptedRef.current = false;
+    hasPositionRef.current = false;
     beginLoadingTimeout();
     navigator.geolocation.getCurrentPosition(applyPosition, handleGeoError, {
       enableHighAccuracy: true,
@@ -130,8 +184,6 @@ export function useGeolocation() {
     }
 
     requestLocation();
-    beginLoadingTimeout();
-
     // Keep watching for better/fresher position updates.
     watchIdRef.current = navigator.geolocation.watchPosition(
       applyPosition,
