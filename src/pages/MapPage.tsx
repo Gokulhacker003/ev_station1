@@ -46,12 +46,12 @@ export default function MapPage() {
   };
 
   const userLoc: [number, number] | null =
-    geo.latitude && geo.longitude ? [geo.latitude, geo.longitude] : null;
+    geo.latitude !== null && geo.longitude !== null ? [geo.latitude, geo.longitude] : null;
 
   return (
     <div className="relative w-full h-screen overflow-hidden">
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="min-h-[calc(100vh-4rem)] pb-16 md:pb-0">
-        <div className="container mx-auto px-4 py-4">
+        <div className="w-full px-4 py-4">
           <h1 className="font-display text-2xl font-bold text-foreground mb-3">Charging Map</h1>
           {isLoading || geo.loading ? (
             <div className="flex justify-center py-20">
@@ -59,6 +59,24 @@ export default function MapPage() {
             </div>
           ) : (
             <>
+              {geo.error && (
+                <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                  <p className="font-semibold">Location unavailable</p>
+                  <p className="mt-1">{geo.error}</p>
+                  {!geo.isSecureContext && (
+                    <p className="mt-1">
+                      Tip: mobile browsers block geolocation on HTTP. Use an HTTPS URL for this site.
+                    </p>
+                  )}
+                  <button
+                    onClick={geo.requestLocation}
+                    className="mt-2 rounded-md bg-amber-600 px-3 py-1.5 font-medium text-white hover:bg-amber-700"
+                  >
+                    Retry Location
+                  </button>
+                </div>
+              )}
+
               <MapView
                 stations={stations || []}
                 onStationClick={handleStationClick}
@@ -68,7 +86,7 @@ export default function MapPage() {
                     ? [selectedStation.latitude, selectedStation.longitude]
                     : null
                 }
-                className="h-[70vh] w-full rounded-xl shadow-lg"
+                className="h-[calc(100vh-12rem)] w-full rounded-xl shadow-lg"
               />
               
               {selectedStation && (

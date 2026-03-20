@@ -72,11 +72,28 @@ export function MapView({
       });
     }
 
+    // Leaflet sometimes measures incorrectly on first paint; force a relayout.
+    const resizeTimer = window.setTimeout(() => {
+      mapRef.current?.invalidateSize();
+    }, 100);
+
+    const handleResize = () => {
+      mapRef.current?.invalidateSize();
+    };
+    window.addEventListener("resize", handleResize);
+
     return () => {
+      window.clearTimeout(resizeTimer);
+      window.removeEventListener("resize", handleResize);
       mapRef.current?.remove();
       mapRef.current = null;
     };
   }, [onMapClick, center, zoom]);
+
+  useEffect(() => {
+    if (!mapRef.current) return;
+    mapRef.current.invalidateSize();
+  }, [stations.length, userLocation, routeTarget, selectedPosition]);
 
   // Re-center when user location becomes available
   useEffect(() => {
@@ -193,8 +210,8 @@ export function MapView({
   }, [userLocation, routeTarget]);
 
   return (
-    <div className="relative z-0">
-      <div ref={containerRef} className={`rounded-xl overflow-hidden ${className}`} />
+    <div className={`map-wrapper relative z-0 ${className}`}>
+      <div id="map" ref={containerRef} className="h-full w-full rounded-xl overflow-hidden" />
     </div>
   );
 }

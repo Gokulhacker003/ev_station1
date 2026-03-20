@@ -35,7 +35,7 @@ export default function Home() {
     return stations
       .map((s) => ({
         ...s,
-        distance: geo.latitude && geo.longitude
+        distance: geo.latitude !== null && geo.longitude !== null
           ? calculateDistance(geo.latitude, geo.longitude, s.latitude, s.longitude)
           : undefined,
       }))

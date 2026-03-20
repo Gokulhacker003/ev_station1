@@ -4,11 +4,24 @@
 
 /* Leaflet z-index override */
 .leaflet-container {
+  height: 100%;
+  width: 100%;
   z-index: 0 !important;
 }
 
 .leaflet-control-container {
   z-index: 1 !important;
+}
+
+.map-wrapper {
+  height: 100vh;
+  width: 100%;
+  position: relative;
+}
+
+#map {
+  height: 100%;
+  width: 100%;
 }
 
 @layer base {
