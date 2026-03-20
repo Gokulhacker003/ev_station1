@@ -53,12 +53,19 @@ export default function MapPage() {
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="min-h-[calc(100vh-4rem)] pb-16 md:pb-0">
         <div className="w-full px-4 py-4">
           <h1 className="font-display text-2xl font-bold text-foreground mb-3">Charging Map</h1>
-          {isLoading || geo.loading ? (
+          {isLoading ? (
             <div className="flex justify-center py-20">
               <Loader text="Loading map..." />
             </div>
           ) : (
             <>
+              {geo.loading && (
+                <div className="mb-3 rounded-lg border border-blue-300 bg-blue-50 p-3 text-sm text-blue-900">
+                  <p className="font-semibold">Getting your current location...</p>
+                  <p className="mt-1">Keep location/GPS enabled for best nearby routing.</p>
+                </div>
+              )}
+
               {geo.error && (
                 <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
                   <p className="font-semibold">Location unavailable</p>

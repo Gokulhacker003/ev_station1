@@ -21,8 +21,35 @@ export function useGeolocation() {
     permission: "unknown",
   });
   const watchIdRef = useRef<number | null>(null);
+  const loadingTimeoutRef = useRef<number | null>(null);
+
+  const clearLoadingTimeout = useCallback(() => {
+    if (loadingTimeoutRef.current !== null) {
+      window.clearTimeout(loadingTimeoutRef.current);
+      loadingTimeoutRef.current = null;
+    }
+  }, []);
+
+  const beginLoadingTimeout = useCallback(() => {
+    clearLoadingTimeout();
+    // Some browsers keep geolocation pending for a long time; fail fast for better UX.
+    loadingTimeoutRef.current = window.setTimeout(() => {
+      setState((s) => {
+        if (!s.loading || s.latitude !== null || s.longitude !== null) {
+          return s;
+        }
+        return {
+          ...s,
+          loading: false,
+          error:
+            "Could not get your current location yet. Please enable GPS/location services and tap Retry Location.",
+        };
+      });
+    }, 15000);
+  }, [clearLoadingTimeout]);
 
   const applyPosition = useCallback((pos: GeolocationPosition) => {
+    clearLoadingTimeout();
     setState((s) => ({
       ...s,
       latitude: pos.coords.latitude,
@@ -31,9 +58,10 @@ export function useGeolocation() {
       error: null,
       loading: false,
     }));
-  }, []);
+  }, [clearLoadingTimeout]);
 
   const handleGeoError = useCallback((err: GeolocationPositionError) => {
+    clearLoadingTimeout();
     const permissionDenied = err.code === err.PERMISSION_DENIED;
     const message = permissionDenied
       ? "Location access denied. Enable location permission in your browser settings."
@@ -44,7 +72,7 @@ export function useGeolocation() {
       loading: false,
       permission: permissionDenied ? "denied" : s.permission,
     }));
-  }, []);
+  }, [clearLoadingTimeout]);
 
   const requestLocation = useCallback(() => {
     if (!navigator.geolocation) {
@@ -63,12 +91,13 @@ export function useGeolocation() {
     }
 
     setState((s) => ({ ...s, loading: true, error: null }));
+    beginLoadingTimeout();
     navigator.geolocation.getCurrentPosition(applyPosition, handleGeoError, {
       enableHighAccuracy: true,
       timeout: 12000,
       maximumAge: 0,
     });
-  }, [applyPosition, handleGeoError]);
+  }, [applyPosition, beginLoadingTimeout, handleGeoError]);
 
   useEffect(() => {
     if (!navigator.geolocation) {
@@ -101,6 +130,7 @@ export function useGeolocation() {
     }
 
     requestLocation();
+    beginLoadingTimeout();
 
     // Keep watching for better/fresher position updates.
     watchIdRef.current = navigator.geolocation.watchPosition(
@@ -110,11 +140,12 @@ export function useGeolocation() {
     );
 
     return () => {
+      clearLoadingTimeout();
       if (watchIdRef.current !== null) {
         navigator.geolocation.clearWatch(watchIdRef.current);
       }
     };
-  }, [applyPosition, handleGeoError, requestLocation]);
+  }, [applyPosition, beginLoadingTimeout, clearLoadingTimeout, handleGeoError, requestLocation]);
 
   return {
     ...state,
