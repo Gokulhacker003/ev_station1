@@ -138,6 +138,7 @@ export function MapView({
     };
   }, [onMapClick]);
 
+  
   useEffect(() => {
     const map = getSafeMap();
     if (!map) return;
