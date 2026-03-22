@@ -3,19 +3,23 @@ import { supabase } from "@/integrations/supabase/client";
 import { MapView } from "@/components/MapView";
 import { Loader } from "@/components/Loader";
 import { motion } from "framer-motion";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { useGeolocation } from "@/hooks/useGeolocation";
 import type { Tables } from "@/integrations/supabase/types";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { calculateDistance, estimateDriveTime, formatDistance } from "@/lib/distance";
+import { Search, X, Navigation } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 export default function MapPage() {
-  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const geo = useGeolocation();
   const [selectedStation, setSelectedStation] = useState<Tables<"stations"> | null>(null);
-  const [centerOnUserToken, setCenterOnUserToken] = useState(0);
+  const [searchQuery, setSearchQuery] = useState("");
   const [mapUserLocation, setMapUserLocation] = useState<[number, number] | null>(null);
+  const [showRoute, setShowRoute] = useState(false);
+  const [routeCoordinates, setRouteCoordinates] = useState<[number, number][] | null>(null);
+  const [isLoadingRoute, setIsLoadingRoute] = useState(false);
   const hasLockedInitialLocationRef = useRef(false);
 
   const stationId = searchParams.get("station");
@@ -43,18 +47,7 @@ export default function MapPage() {
     setSelectedStation(station);
   };
 
-  const handleGetDirections = () => {
-    if (selectedStation) {
-      navigate(`/bookings?station=${selectedStation.id}`);
-    }
-  };
 
-  const handleGetMyLocation = () => {
-    hasLockedInitialLocationRef.current = false;
-    setMapUserLocation(null);
-    geo.requestLocation();
-    setCenterOnUserToken((t) => t + 1);
-  };
 
   useEffect(() => {
     if (hasLockedInitialLocationRef.current) return;
@@ -66,10 +59,31 @@ export default function MapPage() {
 
   const userLoc = mapUserLocation;
 
-  const nearestAvailableStations = useMemo(() => {
-    if (!stations || !userLoc) return [];
+  const filteredStations = useMemo(() => {
+    if (!stations) return [];
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+    if (!normalizedQuery) return stations;
 
-    return stations
+    return stations.filter((station) => {
+      return (
+        station.name.toLowerCase().includes(normalizedQuery)
+        || station.charger_type.toLowerCase().includes(normalizedQuery)
+      );
+    });
+  }, [stations, searchQuery]);
+
+  useEffect(() => {
+    if (!selectedStation) return;
+    const isStillVisible = filteredStations.some((station) => station.id === selectedStation.id);
+    if (!isStillVisible) {
+      setSelectedStation(null);
+    }
+  }, [filteredStations, selectedStation]);
+
+  const nearestAvailableStations = useMemo(() => {
+    if (!filteredStations || !userLoc) return [];
+
+    return filteredStations
       .filter((station) => station.available_slots > 0)
       .map((station) => {
         const distanceKm = calculateDistance(
@@ -87,140 +101,137 @@ export default function MapPage() {
       })
       .sort((a, b) => a.distanceKm - b.distanceKm)
       .slice(0, 5);
-  }, [stations, userLoc]);
+  }, [filteredStations, userLoc]);
+
+  const activeStation = selectedStation || nearestAvailableStations[0] || null;
+  const activeStationDistance = activeStation && userLoc
+    ? calculateDistance(userLoc[0], userLoc[1], activeStation.latitude, activeStation.longitude)
+    : null;
+
+  // Fetch real-time route
+  useEffect(() => {
+    if (!showRoute || !activeStation || !userLoc) {
+      setRouteCoordinates(null);
+      return;
+    }
+
+    const fetchRoute = async () => {
+      setIsLoadingRoute(true);
+      try {
+        // Using OSRM (Open Source Routing Machine) API
+        const response = await fetch(
+          `https://router.project-osrm.org/route/v1/driving/${userLoc[1]},${userLoc[0]};${activeStation.longitude},${activeStation.latitude}?overview=full&geometries=geojson`
+        );
+        const data = await response.json();
+        
+        if (data.routes && data.routes.length > 0) {
+          const coordinates = data.routes[0].geometry.coordinates as [number, number][];
+          // OSRM returns [lng, lat] but Leaflet expects [lat, lng]
+          setRouteCoordinates(coordinates.map(([lng, lat]) => [lat, lng]));
+        }
+      } catch (error) {
+        console.error("Error fetching route:", error);
+        setRouteCoordinates(null);
+      } finally {
+        setIsLoadingRoute(false);
+      }
+    };
+
+    fetchRoute();
+  }, [showRoute, activeStation, userLoc]);
 
   return (
-    <div className="relative w-full h-screen overflow-hidden">
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="min-h-[calc(100vh-4rem)] pb-16 md:pb-0">
-        <div className="w-full px-4 py-4">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <h1 className="font-display text-2xl font-bold text-foreground">Charging Map</h1>
-            <button
-              onClick={handleGetMyLocation}
-              disabled={geo.loading}
-              className="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400"
-            >
-              {geo.loading ? "Getting Location..." : "Get My Location"}
-            </button>
-          </div>
-          {isLoading ? (
-            <div className="flex justify-center py-20">
-              <Loader text="Loading map..." />
-            </div>
-          ) : (
-            <>
-              {geo.error && (
-                <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
-                  <p className="font-semibold">Location unavailable</p>
-                  <p className="mt-1">{geo.error}</p>
-                  {!geo.isSecureContext && (
-                    <p className="mt-1">
-                      Tip: mobile browsers block geolocation on HTTP. Use an HTTPS URL for this site.
-                    </p>
-                  )}
+    <div className="relative h-[calc(100vh-4rem)] w-full overflow-hidden bg-slate-100 pb-16 md:pb-0">
+      {isLoading ? (
+        <div className="flex h-full items-center justify-center">
+          <Loader text="Loading map..." />
+        </div>
+      ) : (
+        <>
+          <MapView
+            stations={filteredStations}
+            onStationClick={handleStationClick}
+            userLocation={userLoc}
+            selectedStationId={selectedStation?.id ?? null}
+            className="h-full w-full"
+            routeCoordinates={routeCoordinates}
+          />
+
+          <div className="pointer-events-none absolute inset-0 z-[500]">
+            <div className="absolute left-0 right-0 top-[10px] px-4">
+              <div className="pointer-events-auto flex items-center gap-2 rounded-[20px] border border-slate-200 bg-white px-4 py-3 shadow-[0_10px_30px_rgba(15,23,42,0.18)]">
+                <Search className="h-4 w-4 text-slate-400" />
+                <input
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search EV stations..."
+                  className="w-full bg-transparent text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none"
+                />
+                {searchQuery && (
                   <button
-                    onClick={geo.requestLocation}
-                    className="mt-2 rounded-md bg-amber-600 px-3 py-1.5 font-medium text-white hover:bg-amber-700"
+                    onClick={() => setSearchQuery("")}
+                    className="rounded-full p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
                   >
-                    Retry Location
+                    <X className="h-4 w-4" />
                   </button>
-                </div>
-              )}
-
-              <MapView
-                stations={stations || []}
-                onStationClick={handleStationClick}
-                userLocation={userLoc}
-                forceCenterOnUserToken={centerOnUserToken}
-                routeTarget={
-                  selectedStation
-                    ? [selectedStation.latitude, selectedStation.longitude]
-                    : null
-                }
-                className="h-[calc(100vh-12rem)] w-full rounded-xl shadow-lg"
-              />
-              
-              {selectedStation && (
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="mt-4 p-4 bg-white rounded-lg shadow-md border border-gray-200"
-                >
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <h2 className="font-bold text-lg">{selectedStation.name}</h2>
-                      <p className="text-sm text-gray-600 mt-1">⚡ {selectedStation.charger_type}</p>
-                      <p className="text-sm text-gray-600">🔌 {selectedStation.available_slots} slots available</p>
-                      {userLoc && (
-                        <p className="text-sm text-blue-600 mt-1">
-                          📍 {formatDistance(
-                            calculateDistance(
-                              userLoc[0],
-                              userLoc[1],
-                              selectedStation.latitude,
-                              selectedStation.longitude
-                            )
-                          )} away
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={handleGetDirections}
-                        className="px-4 py-2 bg-green-500 text-white rounded-lg font-semibold hover:bg-green-600"
-                      >
-                        Book Slot
-                      </button>
-                      <button
-                        onClick={() => setSelectedStation(null)}
-                        className="px-4 py-2 bg-gray-300 text-gray-800 rounded-lg font-semibold hover:bg-gray-400"
-                      >
-                        Clear
-                      </button>
-                    </div>
-                  </div>
-                </motion.div>
-              )}
-
-              <div className="mt-4 rounded-lg border border-gray-200 bg-white p-4 shadow-md">
-                <h3 className="text-lg font-bold text-foreground">Nearest Available EV Stations</h3>
-
-                {!userLoc ? (
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    Enable current location to view nearest available stations.
-                  </p>
-                ) : nearestAvailableStations.length === 0 ? (
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    No nearby stations with available slots right now.
-                  </p>
-                ) : (
-                  <div className="mt-3 space-y-2">
-                    {nearestAvailableStations.map((station) => (
-                      <button
-                        key={station.id}
-                        onClick={() => setSelectedStation(station)}
-                        className="w-full rounded-md border border-gray-200 p-3 text-left transition hover:border-green-400 hover:bg-green-50"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="font-semibold text-foreground">{station.name}</p>
-                            <p className="text-sm text-gray-600">⚡ {station.charger_type}</p>
-                            <p className="text-sm text-gray-600">🔌 {station.available_slots} slots available</p>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-sm font-medium text-blue-700">{formatDistance(station.distanceKm)}</p>
-                            <p className="text-xs text-gray-500">~{station.etaMins} min drive</p>
-                          </div>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
                 )}
               </div>
-            </>
-          )}
-        </div>
-      </motion.div>
+            </div>
+
+            {geo.error && (
+              <div className="absolute left-4 right-4 top-24 pointer-events-auto rounded-2xl border border-amber-200 bg-white/95 p-3 text-xs text-amber-900 shadow-[0_12px_24px_rgba(15,23,42,0.18)]">
+                <p className="font-semibold">Location unavailable</p>
+                <p className="mt-1">{geo.error}</p>
+                <button
+                  onClick={geo.requestLocation}
+                  className="mt-2 rounded-full bg-amber-500 px-3 py-1.5 font-semibold text-white hover:bg-amber-600"
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+
+
+
+            <motion.div
+              initial={{ y: 40, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ duration: 0.35 }}
+              className="pointer-events-none absolute bottom-[70px] left-0 right-0 px-4"
+            >
+              <div className="pointer-events-auto rounded-t-3xl rounded-b-2xl border border-slate-200 bg-white p-4 shadow-[0_-6px_24px_rgba(15,23,42,0.14)]">
+                {activeStation ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-base font-semibold text-slate-900">{activeStation.name}</p>
+                        <p className="mt-1 text-sm text-slate-500">
+                          {activeStationDistance != null
+                            ? `${formatDistance(activeStationDistance)} away`
+                            : "Enable location to see distance"}
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      onClick={() => setShowRoute(!showRoute)}
+                      variant={showRoute ? "default" : "outline"}
+                      className="w-full gap-2"
+                      disabled={!userLoc || isLoadingRoute}
+                    >
+                      <Navigation className="h-4 w-4" />
+                      {isLoadingRoute ? "Loading Route..." : showRoute ? "Hide Route" : "Show Route"}
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-500">
+                    Tap a station marker to see route details.
+                  </p>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

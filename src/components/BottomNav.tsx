@@ -21,8 +21,8 @@ export function BottomNav() {
 
   if (isAdmin) {
     return (
-      <nav className="fixed bottom-0 left-0 right-0 z-50 md:hidden glass border-t border-border safe-bottom">
-        <div className="flex items-center justify-around h-16">
+      <nav className="fixed bottom-0 left-0 right-0 z-[700] border-t border-slate-200 bg-white/95 shadow-[0_-6px_20px_rgba(15,23,42,0.12)] backdrop-blur-md md:hidden safe-bottom">
+        <div className="flex h-16 items-center justify-around px-2">
           {adminLinks.map((link) => {
             const Icon = link.icon;
             const active = location.pathname.startsWith("/admin");
@@ -30,11 +30,11 @@ export function BottomNav() {
               <Link
                 key={link.to}
                 to={link.to}
-                className={`flex flex-col items-center gap-0.5 px-3 py-1.5 text-xs font-medium transition-colors ${
-                  active ? "text-primary" : "text-muted-foreground"
+                className={`flex min-w-[72px] flex-col items-center gap-0.5 rounded-xl px-3 py-1.5 text-xs font-medium transition ${
+                  active ? "bg-emerald-50 text-[#16a34a]" : "text-slate-500"
                 }`}
               >
-                <Icon className={`h-5 w-5 ${active ? "text-primary" : ""}`} />
+                <Icon className={`h-5 w-5 ${active ? "text-[#16a34a]" : ""}`} />
                 {link.label}
               </Link>
             );
@@ -51,8 +51,8 @@ export function BottomNav() {
   });
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 md:hidden glass border-t border-border safe-bottom">
-      <div className="flex items-center justify-around h-16">
+    <nav className="fixed bottom-0 left-0 right-0 z-[700] border-t border-slate-200 bg-white/95 shadow-[0_-6px_20px_rgba(15,23,42,0.12)] backdrop-blur-md md:hidden safe-bottom">
+      <div className="flex h-16 items-center justify-around px-2">
         {filtered.map((link) => {
           const Icon = link.icon;
           const active = location.pathname === link.to;
@@ -60,11 +60,11 @@ export function BottomNav() {
             <Link
               key={link.to}
               to={link.to}
-              className={`flex flex-col items-center gap-0.5 px-3 py-1.5 text-xs font-medium transition-colors ${
-                active ? "text-primary" : "text-muted-foreground"
+              className={`flex min-w-[68px] flex-col items-center gap-0.5 rounded-xl px-3 py-1.5 text-xs font-medium transition ${
+                active ? "bg-emerald-50 text-[#16a34a]" : "text-slate-500"
               }`}
             >
-              <Icon className={`h-5 w-5 ${active ? "text-primary" : ""}`} />
+              <Icon className={`h-5 w-5 ${active ? "text-[#16a34a]" : ""}`} />
               {link.label}
             </Link>
           );

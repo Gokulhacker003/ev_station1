@@ -7,7 +7,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Zap, Mail, Lock, User } from "lucide-react";
+import { Zap, Mail, Lock, User, Phone } from "lucide-react";
 
 const loginSchema = z.object({
   email: z.string().trim().email("Invalid email address").max(255),
@@ -16,6 +16,12 @@ const loginSchema = z.object({
 
 const signupSchema = loginSchema.extend({
   fullName: z.string().trim().min(1, "Name is required").max(100),
+  phone: z
+    .string()
+    .trim()
+    .min(7, "Phone number is too short")
+    .max(20, "Phone number is too long")
+    .regex(/^[+()\-\s\d]+$/, "Invalid phone number"),
 });
 
 type LoginValues = z.infer<typeof loginSchema>;
@@ -30,7 +36,7 @@ export function LoginForm() {
 
   const form = useForm<SignupValues>({
     resolver: zodResolver(isSignUp ? signupSchema : loginSchema),
-    defaultValues: { email: "", password: "", fullName: "" },
+    defaultValues: { email: "", password: "", fullName: "", phone: "" },
   });
 
   const onSubmit = async (values: SignupValues) => {
@@ -39,7 +45,7 @@ export function LoginForm() {
     setSuccess("");
     try {
       if (isSignUp) {
-        await signUp(values.email, values.password, values.fullName);
+        await signUp(values.email, values.password, values.fullName, values.phone);
         setSuccess("Check your email to confirm your account!");
         form.reset();
       } else {
@@ -57,19 +63,40 @@ export function LoginForm() {
       initial={{ opacity: 0, y: 30 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
-      className="w-full max-w-md mx-auto"
+      className="mx-auto w-full max-w-md"
     >
-      <div className="glass rounded-2xl p-8 shadow-xl shadow-primary/5">
-        <div className="flex flex-col items-center mb-8">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary mb-3">
+      <div className="glass rounded-3xl border border-border/70 p-6 shadow-2xl shadow-primary/10 sm:p-8">
+        <div className="mb-6 flex flex-col items-center">
+          <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary shadow-lg shadow-primary/35">
             <Zap className="h-7 w-7 text-primary-foreground" />
           </div>
           <h1 className="font-display text-2xl font-bold text-foreground">
             {isSignUp ? "Create Account" : "Welcome Back"}
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            {isSignUp ? "Join EV Charge today" : "Sign in to your account"}
+          <p className="mt-1 text-sm text-muted-foreground">
+            {isSignUp ? "Create your EV Charge profile in seconds" : "Sign in to continue your charging journey"}
           </p>
+        </div>
+
+        <div className="mb-6 grid grid-cols-2 rounded-2xl bg-muted p-1">
+          <button
+            type="button"
+            onClick={() => { setIsSignUp(false); setError(""); setSuccess(""); form.reset(); }}
+            className={`rounded-xl px-3 py-2 text-sm font-medium transition ${
+              !isSignUp ? "bg-background text-foreground shadow" : "text-muted-foreground"
+            }`}
+          >
+            Sign In
+          </button>
+          <button
+            type="button"
+            onClick={() => { setIsSignUp(true); setError(""); setSuccess(""); form.reset(); }}
+            className={`rounded-xl px-3 py-2 text-sm font-medium transition ${
+              isSignUp ? "bg-background text-foreground shadow" : "text-muted-foreground"
+            }`}
+          >
+            Sign Up
+          </button>
         </div>
 
         <Form {...form}>
@@ -84,7 +111,26 @@ export function LoginForm() {
                     <FormControl>
                       <div className="relative">
                         <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input placeholder="John Doe" className="pl-10" {...field} />
+                        <Input placeholder="John Doe" className="h-11 rounded-xl pl-10" {...field} />
+                      </div>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
+
+            {isSignUp && (
+              <FormField
+                control={form.control}
+                name="phone"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Phone Number</FormLabel>
+                    <FormControl>
+                      <div className="relative">
+                        <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input type="tel" placeholder="+1 555 123 4567" className="h-11 rounded-xl pl-10" {...field} />
                       </div>
                     </FormControl>
                     <FormMessage />
@@ -102,7 +148,7 @@ export function LoginForm() {
                   <FormControl>
                     <div className="relative">
                       <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input type="email" placeholder="you@example.com" className="pl-10" {...field} />
+                      <Input type="email" placeholder="you@example.com" className="h-11 rounded-xl pl-10" {...field} />
                     </div>
                   </FormControl>
                   <FormMessage />
@@ -119,7 +165,7 @@ export function LoginForm() {
                   <FormControl>
                     <div className="relative">
                       <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input type="password" placeholder="••••••••" className="pl-10" {...field} />
+                      <Input type="password" placeholder="••••••••" className="h-11 rounded-xl pl-10" {...field} />
                     </div>
                   </FormControl>
                   <FormMessage />
@@ -147,7 +193,7 @@ export function LoginForm() {
               </motion.p>
             )}
 
-            <Button type="submit" className="w-full" disabled={loading}>
+            <Button type="submit" className="h-11 w-full rounded-xl" disabled={loading}>
               {loading ? (
                 <motion.div
                   className="flex items-center gap-2"

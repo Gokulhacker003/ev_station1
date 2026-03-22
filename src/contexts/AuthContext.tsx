@@ -11,13 +11,25 @@ interface AuthContextType {
   role: AppRole | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string, fullName: string) => Promise<void>;
+  signUp: (email: string, password: string, fullName: string, phone?: string) => Promise<void>;
   signOut: () => Promise<void>;
     userEmail: string | null;
   isAdmin: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+const authFallbackContext: AuthContextType = {
+  session: null,
+  user: null,
+  role: null,
+  loading: true,
+  signIn: async () => {},
+  signUp: async () => {},
+  signOut: async () => {},
+  userEmail: null,
+  isAdmin: false,
+};
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
@@ -89,12 +101,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (error) throw error;
   };
 
-  const signUp = async (email: string, password: string, fullName: string) => {
+  const signUp = async (email: string, password: string, fullName: string, phone?: string) => {
     const { error } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        data: { full_name: fullName },
+        data: { full_name: fullName, phone: phone?.trim() || null },
         emailRedirectTo: window.location.origin,
       },
     });
@@ -117,20 +129,5 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 export function useAuth() {
   const context = useContext(AuthContext);
-  if (!context) {
-    console.error("useAuth must be used within an AuthProvider");
-    // Return a fallback context to prevent crashes during hot reload
-    return {
-      session: null,
-      user: null,
-      role: null,
-      loading: true,
-      signIn: async () => {},
-      signUp: async () => {},
-      signOut: async () => {},
-      userEmail: null,
-      isAdmin: false
-    };
-  }
-  return context;
+  return context ?? authFallbackContext;
 }

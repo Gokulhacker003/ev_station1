@@ -87,9 +87,9 @@ export function useGeolocation() {
         permission: permissionDenied ? "denied" : s.permission,
       }));
     }, {
-      enableHighAccuracy: false,
-      timeout: 20000,
-      maximumAge: 60000,
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 0,
     });
   }, [applyPosition, beginLoadingTimeout, clearLoadingTimeout]);
 

@@ -2,9 +2,68 @@ import { useAuth } from "@/contexts/AuthContext";
 import { ChangePasswordForm } from "@/components/ChangePasswordForm";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader } from "@/components/Loader";
+import { useEffect, useState } from "react";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 export default function SettingsPage() {
   const { user, userEmail, loading } = useAuth();
+  const [phone, setPhone] = useState("");
+  const [phoneLoading, setPhoneLoading] = useState(true);
+  const [savingPhone, setSavingPhone] = useState(false);
+
+  useEffect(() => {
+    const loadPhone = async () => {
+      if (!user?.id) {
+        setPhoneLoading(false);
+        return;
+      }
+
+      setPhoneLoading(true);
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("phone")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (error) {
+        toast.error("Could not load phone number");
+      } else {
+        setPhone(data?.phone ?? "");
+      }
+
+      setPhoneLoading(false);
+    };
+
+    loadPhone();
+  }, [user?.id]);
+
+  const handleSavePhone = async () => {
+    if (!user?.id) return;
+
+    const normalized = phone.trim();
+    if (normalized && normalized.length < 7) {
+      toast.error("Phone number is too short");
+      return;
+    }
+
+    setSavingPhone(true);
+    const { error } = await supabase
+      .from("profiles")
+      .update({ phone: normalized || null })
+      .eq("user_id", user.id);
+
+    setSavingPhone(false);
+
+    if (error) {
+      toast.error("Failed to save phone number");
+      return;
+    }
+
+    toast.success("Phone number updated");
+  };
 
   if (loading) {
     return (
@@ -29,6 +88,25 @@ export default function SettingsPage() {
             <div>
               <p className="text-sm text-muted-foreground">Email Address</p>
               <p className="text-lg font-medium text-foreground">{userEmail || "—"}</p>
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Phone Number</p>
+              {phoneLoading ? (
+                <p className="text-sm text-muted-foreground">Loading...</p>
+              ) : (
+                <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <Input
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="Enter phone number"
+                    className="sm:max-w-xs"
+                  />
+                  <Button onClick={handleSavePhone} disabled={savingPhone} className="sm:w-auto">
+                    {savingPhone ? "Saving..." : "Save"}
+                  </Button>
+                </div>
+              )}
             </div>
             <div>
               <p className="text-sm text-muted-foreground">User ID</p>

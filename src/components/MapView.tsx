@@ -26,29 +26,36 @@ const userIcon = L.divIcon({
   className: "",
 });
 
+const selectedEvIcon = L.divIcon({
+  html: `<div style="background:hsl(45,93%,47%);width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;border:3px solid white;box-shadow:0 0 0 4px rgba(250,204,21,0.3),0 4px 14px rgba(0,0,0,0.35)"><svg width="18" height="18" fill="white" viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 10 10-12h-9l1-10z"/></svg></div>`,
+  iconSize: [36, 36],
+  iconAnchor: [18, 18],
+  className: "",
+});
+
 interface MapViewProps {
   stations: Tables<"stations">[];
   center?: [number, number];
   zoom?: number;
   userLocation?: [number, number] | null;
-  forceCenterOnUserToken?: number;
-  routeTarget?: [number, number] | null;
+  selectedStationId?: string | null;
   onStationClick?: (station: Tables<"stations">) => void;
   onMapClick?: (lat: number, lng: number) => void;
   selectedPosition?: [number, number] | null;
   className?: string;
+  routeCoordinates?: [number, number][] | null;
 }
 
 export function MapView({
   stations,
   zoom = 5,
   userLocation,
-  forceCenterOnUserToken,
-  routeTarget,
+  selectedStationId,
   onStationClick,
   onMapClick,
   selectedPosition,
   className = "h-[70vh]",
+  routeCoordinates = null,
 }: MapViewProps) {
   const initialZoomRef = useRef(zoom);
   const mapRef = useRef<L.Map | null>(null);
@@ -57,13 +64,10 @@ export function MapView({
   const markersRef = useRef<L.LayerGroup | null>(null);
   const selectedMarkerRef = useRef<L.Marker | null>(null);
   const userMarkerRef = useRef<L.Marker | null>(null);
-  const routeLineRef = useRef<L.Polyline | null>(null);
   const hasInitializedViewRef = useRef(false);
   const hasUserInteractedRef = useRef(false);
   const hasCenteredOnUserRef = useRef(false);
-  const hasFittedRouteRef = useRef(false);
-  const lastRouteKeyRef = useRef<string | null>(null);
-  const lastHandledCenterKeyRef = useRef<string | null>(null);
+  const polylineRef = useRef<L.Polyline | null>(null);
 
   const getSafeMap = () => {
     const map = mapRef.current;
@@ -79,7 +83,10 @@ export function MapView({
     isMountedRef.current = true;
 
     mapRef.current = L.map(containerRef.current);
-    mapRef.current.setView([0, 0], initialZoomRef.current, { animate: false });
+    // Load from user location if available, otherwise use Coimbatore as default
+    const initialLocation = userLocation || [11.0081, 76.9366];
+    const initialZoom = userLocation ? 13 : 11;
+    mapRef.current.setView(initialLocation, initialZoom, { animate: false });
     hasInitializedViewRef.current = true;
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
@@ -135,7 +142,7 @@ export function MapView({
     const map = getSafeMap();
     if (!map) return;
     map.invalidateSize({ pan: false, animate: false });
-  }, [stations.length, userLocation, routeTarget, selectedPosition]);
+  }, [stations.length, userLocation, selectedPosition]);
 
   // Re-center when user location becomes available
   useEffect(() => {
@@ -146,16 +153,7 @@ export function MapView({
     map.setView(userLocation, 13, { animate: false });
   }, [userLocation]);
 
-  // Explicitly re-center on user when requested by parent (e.g., Get My Location button).
-  useEffect(() => {
-    const map = getSafeMap();
-    if (!map || !userLocation || !forceCenterOnUserToken) return;
-    const centerKey = `${forceCenterOnUserToken}:${userLocation[0].toFixed(6)},${userLocation[1].toFixed(6)}`;
-    if (lastHandledCenterKeyRef.current === centerKey) return;
 
-    lastHandledCenterKeyRef.current = centerKey;
-    map.setView(userLocation, Math.max(map.getZoom(), 13), { animate: true });
-  }, [forceCenterOnUserToken, userLocation]);
 
   // User location marker
   useEffect(() => {
@@ -179,7 +177,9 @@ export function MapView({
     markersRef.current.clearLayers();
 
     stations.forEach((station) => {
-      const marker = L.marker([station.latitude, station.longitude], { icon: evIcon });
+      const marker = L.marker([station.latitude, station.longitude], {
+        icon: selectedStationId === station.id ? selectedEvIcon : evIcon,
+      });
 
       let distanceHtml = "";
       if (userLocation) {
@@ -193,10 +193,7 @@ export function MapView({
           <strong style="font-size:14px">${station.name}</strong><br/>
           ${distanceHtml}
           <span style="color:#666;font-size:12px">⚡ ${station.charger_type}</span><br/>
-          <span style="color:#666;font-size:12px">🔌 ${station.available_slots} slots available</span><br/>
-          <div style="margin-top:8px;display:flex;gap:6px">
-            <a href="/map?station=${station.id}" style="background:#22c55e;color:white;padding:4px 10px;border-radius:6px;font-size:12px;text-decoration:none">Navigate</a>
-          </div>
+          <span style="color:#666;font-size:12px">🔌 ${station.available_slots} slots available</span>
         </div>`
       );
       if (onStationClick) {
@@ -204,7 +201,7 @@ export function MapView({
       }
       markersRef.current!.addLayer(marker);
     });
-  }, [stations, onStationClick, userLocation]);
+  }, [stations, onStationClick, userLocation, selectedStationId]);
 
   // Handle selected position marker (for admin map picker)
   useEffect(() => {
@@ -217,110 +214,35 @@ export function MapView({
     if (selectedPosition) {
       selectedMarkerRef.current = L.marker(selectedPosition).addTo(map);
       map.setView(selectedPosition, Math.max(map.getZoom(), 12), { animate: false });
-    }
+    } 
   }, [selectedPosition]);
 
-  // Draw real road route from user location to station using OSRM
+  // Handle route line drawing
   useEffect(() => {
     const map = getSafeMap();
     if (!map) return;
-
-    let isCancelled = false;
-    let fitTimer: number | null = null;
-
-    if (!userLocation || !routeTarget) {
-      if (routeLineRef.current) {
-        routeLineRef.current.remove();
-        routeLineRef.current = null;
-      }
-      hasFittedRouteRef.current = false;
-      lastRouteKeyRef.current = null;
-      return;
+    
+    if (polylineRef.current) {
+      polylineRef.current.remove();
+      polylineRef.current = null;
     }
-
-    const routeKey = routeTarget
-      ? `${routeTarget[0].toFixed(6)},${routeTarget[1].toFixed(6)}`
-      : null;
-
-    if (routeKey !== lastRouteKeyRef.current) {
-      hasFittedRouteRef.current = false;
-      lastRouteKeyRef.current = routeKey;
+    
+    if (routeCoordinates && routeCoordinates.length > 0) {
+      polylineRef.current = L.polyline(routeCoordinates, {
+        color: '#3b82f6',
+        weight: 4,
+        opacity: 0.8,
+        lineJoin: 'round',
+        lineCap: 'round'
+      }).addTo(map);
+      
+      // Fit map bounds to show entire route
+      const bounds = L.latLngBounds(routeCoordinates);
+      map.fitBounds(bounds, { padding: [50, 50] });
     }
+  }, [routeCoordinates]);
 
-    if (hasFittedRouteRef.current) return;
 
-    if (routeLineRef.current) {
-      routeLineRef.current.remove();
-      routeLineRef.current = null;
-    }
-
-    const [userLat, userLng] = userLocation;
-    const [targetLat, targetLng] = routeTarget;
-
-    fetch(
-      `https://router.project-osrm.org/route/v1/driving/${userLng},${userLat};${targetLng},${targetLat}?overview=full&geometries=geojson`
-    )
-      .then((res) => res.json())
-      .then((data) => {
-        const safeMap = getSafeMap();
-        if (isCancelled || !safeMap) return;
-        const coords: [number, number][] = data.routes?.[0]?.geometry?.coordinates;
-        if (!coords?.length) return;
-
-        // OSRM returns [lng, lat] — Leaflet needs [lat, lng]
-        const latLngs: L.LatLngTuple[] = coords.map(([lng, lat]) => [lat, lng]);
-
-        routeLineRef.current = L.polyline(latLngs, {
-          color: "#22c55e",
-          weight: 5,
-          opacity: 0.95,
-        }).addTo(safeMap);
-
-        fitTimer = window.setTimeout(() => {
-          const latestMap = getSafeMap();
-          if (isCancelled || !latestMap || !routeLineRef.current) return;
-          latestMap.invalidateSize({ pan: false, animate: false });
-          if (!hasUserInteractedRef.current) {
-            latestMap.fitBounds(routeLineRef.current.getBounds(), {
-              padding: [50, 50],
-              animate: false,
-            });
-          }
-          hasFittedRouteRef.current = true;
-        }, 200);
-      })
-      .catch(() => {
-        // Fallback: straight line if routing fails
-        const safeMap = getSafeMap();
-        if (isCancelled || !safeMap) return;
-        routeLineRef.current = L.polyline([userLocation, routeTarget], {
-          color: "#22c55e",
-          weight: 4,
-          opacity: 0.9,
-          dashArray: "8 8",
-        }).addTo(safeMap);
-
-        fitTimer = window.setTimeout(() => {
-          const latestMap = getSafeMap();
-          if (isCancelled || !latestMap) return;
-          latestMap.invalidateSize({ pan: false, animate: false });
-          if (!hasUserInteractedRef.current) {
-            latestMap.fitBounds(L.latLngBounds([userLocation, routeTarget]), {
-              padding: [40, 40],
-              animate: false,
-            });
-          }
-          hasFittedRouteRef.current = true;
-        }, 200);
-      });
-
-    return () => {
-      isCancelled = true;
-      if (fitTimer !== null) {
-        window.clearTimeout(fitTimer);
-      }
-    };
-  }, [userLocation, routeTarget]);
 
   return (
     <div className={`map-wrapper relative z-0 ${className}`}>
