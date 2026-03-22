@@ -122,7 +122,7 @@ export function MapView({
       mapRef.current?.remove();
       mapRef.current = null;
     };
-  }, []);
+  }, [userLocation]);
 
   useEffect(() => {
     const map = getSafeMap();
