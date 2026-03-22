@@ -45,6 +45,8 @@ export default function AdminDashboard() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [mapPosition, setMapPosition] = useState<[number, number] | null>(null);
+  const [selectedUserEmail, setSelectedUserEmail] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState("recent");
 
   const { data: stations, isLoading } = useQuery({
     queryKey: ["admin-stations"],
@@ -142,9 +144,37 @@ export default function AdminDashboard() {
   const { data: profiles } = useQuery({
     queryKey: ["admin-profiles"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("profiles").select("user_id, full_name");
+      const { data, error } = await supabase.from("profiles").select("user_id, full_name, email");
       if (error) throw error;
       return data;
+    },
+  });
+
+  // Get all users with their booking counts
+  const { data: usersWithBookings } = useQuery({
+    queryKey: ["admin-users-with-bookings"],
+    queryFn: async () => {
+      const { data: profilesData, error: profilesError } = await supabase
+        .from("profiles")
+        .select("user_id, full_name, email")
+        .order("full_name");
+      if (profilesError) throw profilesError;
+
+      // Get booking counts per user
+      const { data: bookingsData, error: bookingsError } = await supabase
+        .from("bookings")
+        .select("user_id");
+      if (bookingsError) throw bookingsError;
+
+      const bookingCounts: Record<string, number> = {};
+      bookingsData?.forEach((b) => {
+        bookingCounts[b.user_id] = (bookingCounts[b.user_id] ?? 0) + 1;
+      });
+
+      return profilesData?.map((p) => ({
+        ...p,
+        booking_count: bookingCounts[p.user_id] ?? 0,
+      })) ?? [];
     },
   });
 
@@ -155,14 +185,23 @@ export default function AdminDashboard() {
   // Recent = last 10 bookings
   const recentBookings = allBookings?.slice(0, 10) ?? [];
 
+  // Filter bookings by selected user email
+  const filteredBookings = selectedUserEmail
+    ? allBookings?.filter((b) => {
+        const userProfile = profiles?.find((p) => p.user_id === b.user_id);
+        return userProfile?.email === selectedUserEmail;
+      }) ?? []
+    : allBookings ?? [];
+
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="min-h-[calc(100vh-4rem)]">
       <div className="container mx-auto px-4 py-6">
         <h1 className="font-display text-2xl font-bold text-foreground mb-6">Admin Dashboard</h1>
 
-        <Tabs defaultValue="recent">
+        <Tabs value={activeTab} onValueChange={setActiveTab} defaultValue="recent">
           <TabsList className="mb-6">
             <TabsTrigger value="recent">Recent</TabsTrigger>
+            <TabsTrigger value="users">Users</TabsTrigger>
             <TabsTrigger value="stations">Stations</TabsTrigger>
             <TabsTrigger value="bookings">All Bookings</TabsTrigger>
           </TabsList>
@@ -211,6 +250,56 @@ export default function AdminDashboard() {
                 ))
               )}
             </div>
+          </TabsContent>
+
+          {/* ── USERS TAB ── */}
+          <TabsContent value="users">
+            <h2 className="font-display text-lg font-semibold mb-4">Users</h2>
+            {usersWithBookings === undefined ? (
+              <div className="flex justify-center py-12"><Loader /></div>
+            ) : (
+              <div className="glass rounded-xl overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Username</TableHead>
+                      <TableHead className="text-right">Bookings</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {usersWithBookings && usersWithBookings.length > 0 ? (
+                      usersWithBookings.map((userInfo) => (
+                        <TableRow key={userInfo.user_id}>
+                          <TableCell className="font-medium">{userInfo.full_name ?? "—"}</TableCell>
+                          <TableCell className="text-right">
+                            <Badge variant="outline">{userInfo.booking_count}</Badge>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setSelectedUserEmail(userInfo.email || null);
+                                setActiveTab("bookings");
+                              }}
+                            >
+                              View Bookings
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={3} className="text-center py-8 text-muted-foreground">
+                          No users found.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
           </TabsContent>
 
           {/* ── STATIONS TAB ── */}
@@ -365,52 +454,78 @@ export default function AdminDashboard() {
 
           {/* ── ALL BOOKINGS TAB ── */}
           <TabsContent value="bookings">
-            <h2 className="font-display text-lg font-semibold mb-4">All Bookings</h2>
-            {bookingsLoading ? (
-              <div className="flex justify-center py-12"><Loader /></div>
-            ) : (
-              <div className="glass rounded-xl overflow-hidden">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Station</TableHead>
-                      <TableHead>User</TableHead>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Time Slot</TableHead>
-                      <TableHead>Status</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {allBookings && allBookings.length > 0 ? (
-                      allBookings.map((booking) => (
-                        <TableRow key={booking.id}>
-                          <TableCell className="font-medium">{booking.stations?.name ?? "—"}</TableCell>
-                          <TableCell className="text-sm">{profileMap[booking.user_id] ?? booking.user_id.slice(0, 8)}</TableCell>
-                          <TableCell>{format(new Date(booking.booking_date), "PP")}</TableCell>
-                          <TableCell>{booking.time_slot}</TableCell>
-                          <TableCell>
-                            <Badge
-                              variant={
-                                booking.status === "confirmed" ? "default" :
-                                booking.status === "cancelled" ? "destructive" : "secondary"
-                              }
-                            >
-                              {booking.status}
-                            </Badge>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between gap-4">
+                <h2 className="font-display text-lg font-semibold">All Bookings</h2>
+                {selectedUserEmail && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSelectedUserEmail(null)}
+                  >
+                    <X className="h-4 w-4 mr-2" />
+                    Clear Filter
+                  </Button>
+                )}
+              </div>
+              
+              {selectedUserEmail && (
+                <div className="glass rounded-xl p-4 bg-primary/5 border border-primary/20">
+                  <p className="text-sm">
+                    <span className="font-semibold">Filtering by email:</span> {selectedUserEmail}
+                  </p>
+                </div>
+              )}
+
+              {bookingsLoading ? (
+                <div className="flex justify-center py-12"><Loader /></div>
+              ) : (
+                <div className="glass rounded-xl overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Station</TableHead>
+                        <TableHead>Username</TableHead>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Time Slot</TableHead>
+                        <TableHead>Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredBookings && filteredBookings.length > 0 ? (
+                        filteredBookings.map((booking) => {
+                          const userProfile = profiles?.find((p) => p.user_id === booking.user_id);
+                          return (
+                            <TableRow key={booking.id}>
+                              <TableCell className="font-medium">{booking.stations?.name ?? "—"}</TableCell>
+                              <TableCell className="text-sm">{userProfile?.full_name ?? "—"}</TableCell>
+                              <TableCell>{format(new Date(booking.booking_date), "PP")}</TableCell>
+                              <TableCell>{booking.time_slot}</TableCell>
+                              <TableCell>
+                                <Badge
+                                  variant={
+                                    booking.status === "confirmed" ? "default" :
+                                    booking.status === "cancelled" ? "destructive" : "secondary"
+                                  }
+                                >
+                                  {booking.status}
+                                </Badge>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })
+                      ) : (
+                        <TableRow>
+                          <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                            {selectedUserEmail ? "No bookings found for this user." : "No bookings yet."}
                           </TableCell>
                         </TableRow>
-                      ))
-                    ) : (
-                      <TableRow>
-                        <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                          No bookings yet.
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </div>
           </TabsContent>
         </Tabs>
       </div>
